@@ -22,7 +22,7 @@
 
 ```bash
 # Clone dự án
-git clone [url-repo]
+git clone https://github.com/anhdhn1703/task-manager.git
 
 # Di chuyển vào thư mục dự án
 cd task-manager
