@@ -22,4 +22,10 @@ public interface NotificationService {
     void deleteNotification(Long id);
     
     void checkAndCreateDeadlineNotifications();
+    
+    void checkHourlyDeadlineNotifications();
+    
+    int deleteExpiredNotifications();
+    
+    int markAllAsRead();
 } 

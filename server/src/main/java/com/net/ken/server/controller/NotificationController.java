@@ -76,4 +76,22 @@ public class NotificationController {
         notificationService.checkAndCreateDeadlineNotifications();
         return ResponseEntity.ok().build();
     }
+    
+    @PostMapping("/check-hourly-deadlines")
+    public ResponseEntity<Void> checkHourlyDeadlineNotifications() {
+        notificationService.checkHourlyDeadlineNotifications();
+        return ResponseEntity.ok().build();
+    }
+    
+    @DeleteMapping("/expired")
+    public ResponseEntity<Integer> deleteExpiredNotifications() {
+        int count = notificationService.deleteExpiredNotifications();
+        return ResponseEntity.ok(count);
+    }
+    
+    @PatchMapping("/read-all")
+    public ResponseEntity<Integer> markAllAsRead() {
+        int count = notificationService.markAllAsRead();
+        return ResponseEntity.ok(count);
+    }
 } 

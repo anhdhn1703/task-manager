@@ -11,16 +11,20 @@ import com.net.ken.server.model.Tag;
 import com.net.ken.server.model.Task;
 import com.net.ken.server.model.Task.Priority;
 import com.net.ken.server.model.Task.Status;
+import com.net.ken.server.model.User;
 import com.net.ken.server.repository.NotificationRepository;
 import com.net.ken.server.repository.ProjectRepository;
 import com.net.ken.server.repository.TagRepository;
 import com.net.ken.server.repository.TaskRepository;
+import com.net.ken.server.repository.UserRepository;
 import com.net.ken.server.service.TaskService;
 import com.net.ken.server.util.LogUtil;
 import com.net.ken.server.util.PerformanceUtil;
+import com.net.ken.server.util.SecurityUtils;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,25 +41,38 @@ public class TaskServiceImpl implements TaskService {
     private final ProjectRepository projectRepository;
     private final TagRepository tagRepository;
     private final NotificationRepository notificationRepository;
+    private final UserRepository userRepository;
     private static final Logger log = LogUtil.getLogger(TaskServiceImpl.class);
 
     @Autowired
     public TaskServiceImpl(TaskRepository taskRepository, 
                          ProjectRepository projectRepository, 
                          TagRepository tagRepository,
-                         NotificationRepository notificationRepository) {
+                         NotificationRepository notificationRepository,
+                         UserRepository userRepository) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
         this.tagRepository = tagRepository;
         this.notificationRepository = notificationRepository;
+        this.userRepository = userRepository;
         LogUtil.info(log, "TaskServiceImpl đã được khởi tạo");
+    }
+
+    // Lấy người dùng hiện tại từ context bảo mật
+    private User getCurrentUser() {
+        String username = SecurityUtils.getCurrentUsername()
+            .orElseThrow(() -> new AccessDeniedException("Không tìm thấy thông tin người dùng hiện tại"));
+        return userRepository.findByUsername(username)
+            .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy người dùng: " + username));
     }
 
     @Override
     public List<TaskDTO> getAllTasks() {
-        LogUtil.debug(log, "Đang lấy tất cả các task");
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang lấy tất cả các task cho người dùng {}", currentUser.getUsername());
+        
         return PerformanceUtil.measureExecutionTime(log, "getAllTasks", () -> {
-            List<TaskDTO> tasks = taskRepository.findAll().stream()
+            List<TaskDTO> tasks = taskRepository.findByUser(currentUser).stream()
                     .map(this::convertToDTO)
                     .collect(Collectors.toList());
             LogUtil.debug(log, "Đã tìm thấy {} tasks", tasks.size());
@@ -65,31 +82,52 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     public TaskDTO getTaskById(Long id) {
+        User currentUser = getCurrentUser();
         LogUtil.debug(log, "Đang tìm task với ID: {}", id);
+        
         return PerformanceUtil.measureExecutionTime(log, "getTaskById", () -> {
-            try {
-                Task task = taskRepository.findById(id)
-                        .orElseThrow(() -> new TaskManagerException.ResourceNotFoundException("Task", "id", id));
-                LogUtil.debug(log, "Đã tìm thấy task: {}", task.getTitle());
-                return convertToDTO(task);
-            } catch (TaskManagerException.ResourceNotFoundException e) {
-                LogUtil.error(log, "Không tìm thấy task với ID: {}", e, id);
-                throw e;
+            Task task = taskRepository.findById(id)
+                    .orElseThrow(() -> {
+                        LogUtil.warn(log, "Không tìm thấy task với ID: {}", id);
+                        return new EntityNotFoundException("Không tìm thấy công việc với ID: " + id);
+                    });
+            
+            // Kiểm tra quyền truy cập
+            if (task.getUser() != null && !task.getUser().getId().equals(currentUser.getId())) {
+                LogUtil.warn(log, "Người dùng {} không có quyền truy cập task với ID: {}", 
+                        currentUser.getUsername(), id);
+                throw new AccessDeniedException("Không có quyền truy cập công việc này");
             }
+            
+            LogUtil.debug(log, "Đã tìm thấy task: {}", task.getTitle());
+            return convertToDTO(task);
         });
     }
 
     @Override
     public List<TaskDTO> getTasksByProjectId(Long projectId) {
-        LogUtil.debug(log, "Đang tìm tasks cho dự án với ID: {}", projectId);
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang lấy các task theo projectId: {}", projectId);
+        
         return PerformanceUtil.measureExecutionTime(log, "getTasksByProjectId", () -> {
-            if (!projectRepository.existsById(projectId)) {
-                throw new TaskManagerException.ResourceNotFoundException("Project", "id", projectId);
+            Project project = projectRepository.findById(projectId)
+                    .orElseThrow(() -> {
+                        LogUtil.warn(log, "Không tìm thấy project với ID: {}", projectId);
+                        return new EntityNotFoundException("Không tìm thấy dự án với ID: " + projectId);
+                    });
+            
+            // Kiểm tra quyền truy cập
+            if (project.getUser() != null && !project.getUser().getId().equals(currentUser.getId())) {
+                LogUtil.warn(log, "Người dùng {} không có quyền truy cập project với ID: {}", 
+                        currentUser.getUsername(), projectId);
+                throw new AccessDeniedException("Không có quyền truy cập dự án này");
             }
-            List<TaskDTO> tasks = taskRepository.findByProjectId(projectId).stream()
+            
+            List<TaskDTO> tasks = taskRepository.findByProjectIdAndUser(projectId, currentUser).stream()
                     .map(this::convertToDTO)
                     .collect(Collectors.toList());
-            LogUtil.debug(log, "Đã tìm thấy {} tasks cho dự án ID: {}", tasks.size(), projectId);
+            
+            LogUtil.debug(log, "Đã tìm thấy {} tasks cho projectId: {}", tasks.size(), projectId);
             return tasks;
         });
     }
@@ -130,71 +168,112 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public TaskDTO createTask(CreateTaskDTO createTaskDTO) {
-        Project project = projectRepository.findById(createTaskDTO.getProjectId())
-                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy dự án với ID: " + createTaskDTO.getProjectId()));
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang tạo task mới: {}", createTaskDTO.getTitle());
         
-        Task task = new Task();
-        task.setTitle(createTaskDTO.getTitle());
-        task.setDescription(createTaskDTO.getDescription());
-        
-        // Xử lý startDate
-        if (createTaskDTO.getStartDate() != null) {
-            task.setStartDate(createTaskDTO.getStartDate());
-        } else {
-            task.setStartDate(LocalDateTime.now());
-        }
-        
-        // Xử lý dueDate
-        task.setDueDate(createTaskDTO.getDueDate());
-        
-        try {
-            task.setPriority(Priority.valueOf(createTaskDTO.getPriority().toUpperCase()));
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Mức ưu tiên không hợp lệ: " + createTaskDTO.getPriority());
-        }
-        
-        // Xử lý trạng thái nếu được cung cấp
-        if (createTaskDTO.getStatus() != null && !createTaskDTO.getStatus().isEmpty()) {
-            try {
-                task.setStatus(Status.valueOf(createTaskDTO.getStatus().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("Trạng thái không hợp lệ: " + createTaskDTO.getStatus());
+        return PerformanceUtil.measureExecutionTime(log, "createTask", () -> {
+            Project project = null;
+            if (createTaskDTO.getProjectId() != null) {
+                project = projectRepository.findById(createTaskDTO.getProjectId())
+                        .orElseThrow(() -> {
+                            LogUtil.warn(log, "Không tìm thấy project với ID: {}", createTaskDTO.getProjectId());
+                            return new EntityNotFoundException("Không tìm thấy dự án với ID: " + createTaskDTO.getProjectId());
+                        });
+                
+                // Kiểm tra quyền truy cập vào project
+                if (project.getUser() != null && !project.getUser().getId().equals(currentUser.getId())) {
+                    LogUtil.warn(log, "Người dùng {} không có quyền tạo task trong project với ID: {}", 
+                            currentUser.getUsername(), createTaskDTO.getProjectId());
+                    throw new AccessDeniedException("Không có quyền thêm task vào dự án này");
+                }
             }
-        } else {
-            // Mặc định là NOT_STARTED nếu không được cung cấp
-            task.setStatus(Status.NOT_STARTED);
-        }
-        
-        // Xử lý tiến độ nếu được cung cấp
-        if (createTaskDTO.getProgress() != null) {
-            if (createTaskDTO.getProgress() < 0 || createTaskDTO.getProgress() > 100) {
-                throw new IllegalArgumentException("Tiến độ phải nằm trong khoảng từ 0 đến 100");
+            
+            Task task = new Task();
+            task.setTitle(createTaskDTO.getTitle());
+            task.setDescription(createTaskDTO.getDescription());
+            
+            // Thiết lập ngày tháng
+            if (createTaskDTO.getStartDate() != null) {
+                task.setStartDate(createTaskDTO.getStartDate());
+            } else {
+                task.setStartDate(LocalDateTime.now());
             }
-            task.setProgress(createTaskDTO.getProgress());
-        } else {
-            // Mặc định là 0 nếu không được cung cấp
-            task.setProgress(0);
-        }
-        
-        task.setProject(project);
-        
-        // Thêm tags
-        if (createTaskDTO.getTagIds() != null && !createTaskDTO.getTagIds().isEmpty()) {
-            Set<Tag> tags = new HashSet<>();
-            for (Long tagId : createTaskDTO.getTagIds()) {
-                Tag tag = tagRepository.findById(tagId)
-                        .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy thẻ với ID: " + tagId));
-                tags.add(tag);
+            
+            if (createTaskDTO.getDueDate() != null) {
+                task.setDueDate(createTaskDTO.getDueDate());
             }
-            task.setTags(tags);
-        }
-        
-        Task savedTask = taskRepository.save(task);
-        
-        // Tạo thông báo dựa trên dueStatus
-        createDueStatusNotification(savedTask);
-        
-        return convertToDTO(savedTask);
+            
+            // Thiết lập ưu tiên
+            if (createTaskDTO.getPriority() != null) {
+                try {
+                    task.setPriority(Priority.valueOf(createTaskDTO.getPriority().toUpperCase()));
+                } catch (IllegalArgumentException e) {
+                    LogUtil.warn(log, "Giá trị priority không hợp lệ: {}", createTaskDTO.getPriority());
+                    throw new TaskManagerException("Mức độ ưu tiên không hợp lệ: " + createTaskDTO.getPriority());
+                }
+            } else {
+                task.setPriority(Priority.MEDIUM);
+            }
+            
+            // Thiết lập trạng thái
+            if (createTaskDTO.getStatus() != null && !createTaskDTO.getStatus().isEmpty()) {
+                try {
+                    task.setStatus(Status.valueOf(createTaskDTO.getStatus().toUpperCase()));
+                } catch (IllegalArgumentException e) {
+                    LogUtil.warn(log, "Giá trị status không hợp lệ: {}", createTaskDTO.getStatus());
+                    throw new TaskManagerException("Trạng thái không hợp lệ: " + createTaskDTO.getStatus());
+                }
+            } else {
+                task.setStatus(Status.NOT_STARTED);
+            }
+            
+            // Thiết lập tiến độ
+            if (createTaskDTO.getProgress() != null) {
+                if (createTaskDTO.getProgress() < 0 || createTaskDTO.getProgress() > 100) {
+                    LogUtil.warn(log, "Giá trị progress không hợp lệ: {}", createTaskDTO.getProgress());
+                    throw new TaskManagerException("Tiến độ phải từ 0-100%");
+                }
+                task.setProgress(createTaskDTO.getProgress());
+            } else {
+                task.setProgress(0);
+            }
+            
+            // Gắn project (nếu có)
+            task.setProject(project);
+            
+            // Gắn user
+            task.setUser(currentUser);
+            
+            // Xử lý tags (nếu có)
+            if (createTaskDTO.getTagIds() != null && !createTaskDTO.getTagIds().isEmpty()) {
+                Set<Tag> tags = new HashSet<>();
+                for (Long tagId : createTaskDTO.getTagIds()) {
+                    Tag tag = tagRepository.findById(tagId)
+                            .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy thẻ với ID: " + tagId));
+                    
+                    // Kiểm tra quyền truy cập vào tag
+                    if (tag.getUser() != null && !tag.getUser().getId().equals(currentUser.getId())) {
+                        LogUtil.warn(log, "Người dùng {} không có quyền sử dụng tag với ID: {}", 
+                                currentUser.getUsername(), tagId);
+                        throw new AccessDeniedException("Không có quyền sử dụng thẻ này");
+                    }
+                    
+                    tags.add(tag);
+                }
+                task.setTags(tags);
+            }
+            
+            // Lưu task
+            Task savedTask = taskRepository.save(task);
+            LogUtil.info(log, "Đã tạo task mới với ID: {}", savedTask.getId());
+            
+            // Tạo thông báo task mới nếu có deadline
+            if (savedTask.getDueDate() != null) {
+                createDueStatusNotification(savedTask);
+            }
+            
+            return convertToDTO(savedTask);
+        });
     }
 
     @Override

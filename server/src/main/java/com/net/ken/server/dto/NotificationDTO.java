@@ -13,8 +13,11 @@ public class NotificationDTO {
     private Long id;
     private String message;
     private String type;
+    private String priority;
     private boolean read;
     private LocalDateTime createdAt;
+    private LocalDateTime notifyAt;
+    private LocalDateTime expireAt;
     private Long taskId;
     private String taskTitle;
 } 

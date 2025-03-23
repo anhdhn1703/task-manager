@@ -1,10 +1,47 @@
 import api from './api';
 
+// Helper để lấy ID người dùng hiện tại từ localStorage
+const getCurrentUserId = () => {
+  try {
+    const userInfo = localStorage.getItem('user_info');
+    
+    // Kiểm tra kỹ hơn để tránh lỗi khi parse JSON
+    if (!userInfo || userInfo === 'undefined' || userInfo === 'null') {
+      console.log('TaskService: Không tìm thấy thông tin người dùng trong localStorage');
+      return null;
+    }
+    
+    const user = JSON.parse(userInfo);
+    if (!user || !user.id) {
+      console.log('TaskService: ID người dùng không tồn tại trong dữ liệu user_info');
+      return null;
+    }
+    
+    return user.id;
+  } catch (error) {
+    console.error('Lỗi khi lấy ID người dùng:', error);
+    return null;
+  }
+};
+
 const taskService = {
   /**
-   * Lấy tất cả công việc
+   * Lấy danh sách công việc
+   * @param {Object} params - Các tham số lọc và phân trang 
+   * @returns {Promise<Object>}
+   */
+  getTasks: async (params = {}) => {
+    // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
+    const response = await api.get('/tasks', { params });
+    return response.data;
+  },
+
+  /**
+   * Lấy tất cả công việc của người dùng hiện tại
+   * @returns {Promise<Array>} - Danh sách công việc
    */
   getAllTasks: async () => {
+    console.log('TaskService: Đang lấy tất cả công việc của người dùng hiện tại');
     const response = await api.get('/tasks');
     return response.data;
   },
@@ -12,8 +49,10 @@ const taskService = {
   /**
    * Lấy chi tiết công việc theo ID
    * @param {number} id - ID của công việc
+   * @returns {Promise<Object>}
    */
   getTaskById: async (id) => {
+    // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
     const response = await api.get(`/tasks/${id}`);
     return response.data;
   },
@@ -56,30 +95,49 @@ const taskService = {
 
   /**
    * Tạo công việc mới
-   * @param {Object} task - Dữ liệu công việc
+   * @param {Object} taskData - Dữ liệu công việc
+   * @returns {Promise<Object>}
    */
-  createTask: async (task) => {
-    const response = await api.post('/tasks', task);
+  createTask: async (taskData) => {
+    // Thêm userId vào dữ liệu nếu chưa có
+    const userId = getCurrentUserId();
+    if (userId && !taskData.userId) {
+      taskData.userId = userId;
+    }
+    
+    const response = await api.post('/tasks', taskData);
     return response.data;
   },
 
   /**
-   * Cập nhật công việc
+   * Cập nhật thông tin công việc
    * @param {number} id - ID của công việc
-   * @param {Object} task - Dữ liệu công việc cập nhật
+   * @param {Object} taskData - Dữ liệu cập nhật
+   * @returns {Promise<Object>}
    */
-  updateTask: async (id, task) => {
-    const response = await api.put(`/tasks/${id}`, task);
+  updateTask: async (id, taskData) => {
+    // Thêm userId vào dữ liệu để xác thực
+    const userId = getCurrentUserId();
+    if (userId) {
+      taskData.userId = userId;
+    }
+    
+    const response = await api.put(`/tasks/${id}`, taskData);
     return response.data;
   },
 
   /**
-   * Cập nhật trạng thái công việc
+   * Cập nhật trạng thái của công việc
    * @param {number} id - ID của công việc
    * @param {string} status - Trạng thái mới
+   * @returns {Promise<Object>}
    */
   updateTaskStatus: async (id, status) => {
-    const response = await api.patch(`/tasks/${id}/status`, { status });
+    const userId = getCurrentUserId();
+    const response = await api.patch(`/tasks/${id}/status`, { 
+      status,
+      userId // Thêm userId vào body
+    });
     return response.data;
   },
 
@@ -96,10 +154,24 @@ const taskService = {
   /**
    * Xóa công việc
    * @param {number} id - ID của công việc
+   * @returns {Promise<Object>}
    */
   deleteTask: async (id) => {
-    await api.delete(`/tasks/${id}`);
-    return true;
+    // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
+    const response = await api.delete(`/tasks/${id}`);
+    return response.data;
+  },
+
+  /**
+   * Lấy danh sách công việc theo dự án
+   * @param {number} projectId - ID của dự án
+   * @param {Object} params - Các tham số lọc và phân trang
+   * @returns {Promise<Object>}
+   */
+  getTasksByProject: async (projectId, params = {}) => {
+    // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
+    const response = await api.get(`/projects/${projectId}/tasks`, { params });
+    return response.data;
   }
 };
 

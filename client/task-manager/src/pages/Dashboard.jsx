@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Typography, Progress, Statistic, List, Tag, Button, Spin, message } from 'antd';
+import { Row, Col, Card, Typography, Progress, Statistic, List, Tag, Button, Spin, message, Alert } from 'antd';
 import { 
   ProjectOutlined, 
   CheckCircleOutlined, 
   ClockCircleOutlined, 
   ExclamationCircleOutlined,
-  RightOutlined
+  RightOutlined,
+  LoginOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { Column } from '@ant-design/charts';
+import { useAuth } from '../contexts/AuthContext';
 
 import projectService from '../services/projectService';
 import taskService from '../services/taskService';
@@ -18,6 +20,7 @@ const { Title, Text } = Typography;
 
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [stats, setStats] = useState({
     totalProjects: 0,
     totalTasks: 0,
@@ -31,15 +34,25 @@ const Dashboard = () => {
   const [tasksByStatus, setTasksByStatus] = useState([]);
   
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
+        setError(null);
+        
+        // Kiểm tra xác thực trước khi gọi API
+        if (!isAuthenticated()) {
+          console.log('Dashboard: Người dùng chưa đăng nhập, không gọi API');
+          setError('Vui lòng đăng nhập để xem bảng điều khiển');
+          setLoading(false);
+          return;
+        }
         
         const [tasksData, projectsData] = await Promise.all([
-          taskService.getAllTasks(),
-          projectService.getAllProjects()
+          taskService.getTasks(),
+          projectService.getProjects()
         ]);
         
         // Tính toán số liệu thống kê
@@ -136,14 +149,20 @@ const Dashboard = () => {
         
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
-        message.error("Không thể tải dữ liệu dashboard");
+        if (error.response && error.response.status === 401) {
+          setError('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+        } else if (error.message && error.message.includes('Network Error')) {
+          setError('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.');
+        } else {
+          setError('Không thể tải dữ liệu bảng điều khiển. Vui lòng thử lại sau.');
+        }
       } finally {
         setLoading(false);
       }
     };
     
     fetchData();
-  }, []);
+  }, [isAuthenticated]);
 
   const getStatusTag = (status) => {
     const statusMap = {
@@ -236,6 +255,33 @@ const Dashboard = () => {
       <div style={{ textAlign: 'center', padding: '50px' }}>
         <Spin size="large" />
         <p>Đang tải dữ liệu...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '20px' }}>
+        <Alert
+          message="Lỗi tải dữ liệu"
+          description={
+            <div>
+              <p>{error}</p>
+              {error.includes('đăng nhập') && (
+                <Button 
+                  type="primary" 
+                  icon={<LoginOutlined />} 
+                  onClick={() => navigate('/login')}
+                  style={{ marginTop: 16 }}
+                >
+                  Đăng nhập
+                </Button>
+              )}
+            </div>
+          }
+          type="error"
+          showIcon
+        />
       </div>
     );
   }
