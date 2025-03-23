@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Badge, Dropdown, Avatar, Space, Divider, message } from 'antd';
+import { Layout, Menu, Badge, Dropdown, Avatar, Space, Divider, message, Button } from 'antd';
 import { 
   MenuFoldOutlined, 
   MenuUnfoldOutlined, 
@@ -10,9 +10,11 @@ import {
   BellOutlined, 
   UserOutlined,
   LogoutOutlined,
-  SettingOutlined
+  SettingOutlined,
+  DownOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Link, Outlet } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 import notificationService from '../../services/notificationService';
 
@@ -25,6 +27,7 @@ const MainLayout = () => {
   
   const navigate = useNavigate();
   const location = useLocation();
+  const { logout, user } = useAuth();
 
   useEffect(() => {
     fetchUnreadNotifications();
@@ -37,17 +40,34 @@ const MainLayout = () => {
 
   const fetchUnreadNotifications = async () => {
     try {
-      const data = await notificationService.getUnreadNotifications();
-      setNotifications(data.slice(0, 5)); // Lấy 5 thông báo gần nhất
-      setUnreadCount(data.length);
+      if (!user) {
+        // Nếu không có thông tin người dùng, không gọi API
+        setNotifications([]);
+        setUnreadCount(0);
+        return;
+      }
+      
+      // Lấy danh sách thông báo chưa đọc
+      const notifications = await notificationService.getNotifications({ read: false });
+      setNotifications(notifications.slice(0, 5)); // Lấy 5 thông báo gần nhất
+      
+      // Lấy số lượng thông báo chưa đọc
+      const count = await notificationService.getUnreadCount();
+      setUnreadCount(count);
     } catch (error) {
       console.error("Error fetching unread notifications:", error);
+      // Nếu lỗi liên quan đến xác thực (401), logout và chuyển hướng
+      if (error.response && error.response.status === 401) {
+        message.error("Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.");
+        logout();
+        navigate('/login');
+      }
     }
   };
 
   const handleNotificationClick = (notification) => {
     // Đánh dấu là đã đọc
-    notificationService.markNotificationAsRead(notification.id)
+    notificationService.markAsRead(notification.id)
       .then(() => {
         fetchUnreadNotifications();
         
@@ -62,9 +82,8 @@ const MainLayout = () => {
   };
 
   const handleLogout = () => {
-    // Trong demo này không có xử lý đăng xuất thực tế
-    message.success("Đã đăng xuất");
-    // Thực tế sẽ xóa token, chuyển về trang login,...
+    logout();
+    navigate('/login');
   };
 
   const notificationItems = {
@@ -113,45 +132,24 @@ const MainLayout = () => {
     ],
   };
 
-  const userItems = {
-    items: [
-      {
-        key: 'user-info',
-        label: (
-          <div>
-            <div style={{ fontWeight: 'bold' }}>Người dùng</div>
-            <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
-              admin@example.com
-            </div>
-          </div>
-        ),
-        disabled: true,
-      },
-      {
-        type: 'divider',
-      },
-      {
-        key: 'profile',
-        icon: <UserOutlined />,
-        label: 'Hồ sơ cá nhân',
-      },
-      {
-        key: 'settings',
-        icon: <SettingOutlined />,
-        label: 'Cài đặt',
-      },
-      {
-        type: 'divider',
-      },
-      {
-        key: 'logout',
-        icon: <LogoutOutlined />,
-        label: 'Đăng xuất',
-        danger: true,
-        onClick: handleLogout,
-      },
-    ],
-  };
+  const userMenu = [
+    {
+      key: 'profile',
+      label: <Link to="/profile">{user?.fullName || user?.username || 'Hồ sơ cá nhân'}</Link>,
+    },
+    {
+      key: 'change-password',
+      label: <Link to="/change-password">Đổi mật khẩu</Link>,
+    },
+    {
+      key: 'divider',
+      type: 'divider',
+    },
+    {
+      key: 'logout',
+      label: <a onClick={handleLogout}>Đăng xuất</a>,
+    },
+  ];
 
   const menuItems = [
     {
@@ -231,10 +229,16 @@ const MainLayout = () => {
           justifyContent: 'space-between'
         }}>
           <div>
-            {React.createElement(collapsed ? MenuUnfoldOutlined : MenuFoldOutlined, {
-              onClick: () => setCollapsed(!collapsed),
-              style: { fontSize: 18 }
-            })}
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+              style={{
+                fontSize: '16px',
+                width: 64,
+                height: 64,
+              }}
+            />
           </div>
           <Space size="large">
             <Dropdown
@@ -248,14 +252,14 @@ const MainLayout = () => {
               </Badge>
             </Dropdown>
             <Dropdown 
-              menu={userItems}
+              menu={{ items: userMenu }}
               placement="bottomRight"
               arrow={{ pointAtCenter: true }}
               trigger={['click']}
             >
               <Space>
-                <Avatar icon={<UserOutlined />} />
-                {!collapsed && <span>Admin</span>}
+                <Avatar style={{ backgroundColor: '#1677ff' }} icon={<UserOutlined />} />
+                {!collapsed && <span>{user?.fullName || user?.username}</span>}
               </Space>
             </Dropdown>
           </Space>

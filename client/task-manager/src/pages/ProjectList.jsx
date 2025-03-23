@@ -41,7 +41,7 @@ const ProjectList = () => {
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      const data = await projectService.getAllProjects();
+      const data = await projectService.getProjects();
       
       // Tính toán số công việc và tiến độ cho mỗi dự án
       const projectsWithStats = await Promise.all(data.map(async (project) => {

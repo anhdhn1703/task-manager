@@ -23,6 +23,10 @@ public class Tag {
 
     private String color;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+
     @ManyToMany(mappedBy = "tags")
     private Set<Task> tasks = new HashSet<>();
 } 
