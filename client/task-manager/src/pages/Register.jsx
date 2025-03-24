@@ -16,7 +16,7 @@ const Register = () => {
   const [localError, setLocalError] = useState(null);
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  const { register, error: contextError, isAuthenticated } = useAuth();
+  const { register, error: contextError, isAuthenticated, clearError } = useAuth();
   
   // Kiểm tra xem người dùng đã đăng nhập chưa
   useEffect(() => {
@@ -114,7 +114,10 @@ const Register = () => {
               type="error"
               showIcon
               closable
-              onClose={() => setLocalError(null)}
+              onClose={() => {
+                setLocalError(null);
+                if (clearError) clearError();
+              }}
             />
           )}
           

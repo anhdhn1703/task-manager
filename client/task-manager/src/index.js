@@ -6,9 +6,10 @@ import viVN from 'antd/lib/locale/vi_VN';
 import App from './App';
 import './index.css';
 import reportWebVitals from './reportWebVitals';
+import { AuthProvider } from './contexts/AuthContext';
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
+// Tách phần render ra để có thể tối ưu hóa
+const renderApp = () => (
   <React.StrictMode>
     <BrowserRouter>
       <ConfigProvider
@@ -19,13 +20,37 @@ root.render(
           },
         }}
       >
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </ConfigProvider>
     </BrowserRouter>
   </React.StrictMode>
 );
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+// Tạo root và render application
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(renderApp());
+
+// Preload các module quan trọng để giảm thời gian tải
+const preloadImportantModules = () => {
+  // Preload Auth store and services
+  import('./stores/authStore');
+  import('./services/api');
+  
+  // Preload các trang chính
+  import('./pages/Dashboard');
+  import('./pages/ProjectList');
+  import('./pages/TaskList');
+};
+
+// Thực hiện preload khi trình duyệt rảnh
+if ('requestIdleCallback' in window) {
+  window.requestIdleCallback(preloadImportantModules);
+} else {
+  // Fallback cho các trình duyệt không hỗ trợ requestIdleCallback
+  setTimeout(preloadImportantModules, 500);
+}
+
+// Báo cáo web vitals
 reportWebVitals();

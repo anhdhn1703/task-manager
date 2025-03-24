@@ -31,9 +31,22 @@ const taskService = {
    * @returns {Promise<Object>}
    */
   getTasks: async (params = {}) => {
-    // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
-    const response = await api.get('/tasks', { params });
-    return response.data;
+    try {
+      console.log('TaskService: Đang lấy danh sách công việc với params:', params);
+      // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
+      const response = await api.get('/tasks', { params });
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error('TaskService: Không có dữ liệu trả về từ API /tasks');
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error('TaskService: Lỗi khi lấy danh sách công việc:', error);
+      return [];
+    }
   },
 
   /**
@@ -41,9 +54,21 @@ const taskService = {
    * @returns {Promise<Array>} - Danh sách công việc
    */
   getAllTasks: async () => {
-    console.log('TaskService: Đang lấy tất cả công việc của người dùng hiện tại');
-    const response = await api.get('/tasks');
-    return response.data;
+    try {
+      console.log('TaskService: Đang lấy tất cả công việc của người dùng hiện tại');
+      const response = await api.get('/tasks');
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error('TaskService: Không có dữ liệu trả về từ API /tasks');
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error('TaskService: Lỗi khi lấy tất cả công việc:', error);
+      return [];
+    }
   },
 
   /**
@@ -52,9 +77,21 @@ const taskService = {
    * @returns {Promise<Object>}
    */
   getTaskById: async (id) => {
-    // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
-    const response = await api.get(`/tasks/${id}`);
-    return response.data;
+    try {
+      // Không cần thêm userId nữa vì server sẽ lấy từ JWT token
+      const response = await api.get(`/tasks/${id}`);
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error(`TaskService: Không có dữ liệu trả về từ API /tasks/${id}`);
+        return null;
+      }
+      
+      return response.data.data;
+    } catch (error) {
+      console.error(`TaskService: Lỗi khi lấy chi tiết công việc ${id}:`, error);
+      throw error;
+    }
   },
 
   /**
@@ -62,8 +99,20 @@ const taskService = {
    * @param {number} projectId - ID của dự án
    */
   getTasksByProjectId: async (projectId) => {
-    const response = await api.get(`/tasks/project/${projectId}`);
-    return response.data;
+    try {
+      const response = await api.get(`/tasks/project/${projectId}`);
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error(`TaskService: Không có dữ liệu trả về từ API /tasks/project/${projectId}`);
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error(`TaskService: Lỗi khi lấy công việc theo dự án ${projectId}:`, error);
+      return [];
+    }
   },
 
   /**

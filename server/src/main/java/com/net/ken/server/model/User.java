@@ -44,6 +44,9 @@ public class User implements UserDetails {
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
 
+    @Column(name = "last_password_change_date")
+    private LocalDateTime lastPasswordChangeDate;
+
     @Column(name = "account_non_expired")
     private boolean accountNonExpired = true;
 

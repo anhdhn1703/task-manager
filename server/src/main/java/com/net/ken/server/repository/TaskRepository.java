@@ -2,6 +2,9 @@ package com.net.ken.server.repository;
 
 import com.net.ken.server.model.Task;
 import com.net.ken.server.model.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -9,24 +12,48 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface TaskRepository extends JpaRepository<Task, Long> {
-    // Lọc tasks theo người dùng
+    // Lọc tasks theo người dùng với entity graph để giải quyết N+1 query
+    @EntityGraph(attributePaths = {"tags", "project"})
     List<Task> findByUser(User user);
     
-    // Tìm task theo ID và người dùng để đảm bảo quyền truy cập
-    Task findByIdAndUser(Long id, User user);
+    // Phân trang cho findByUser
+    @EntityGraph(attributePaths = {"tags", "project"})
+    Page<Task> findByUser(User user, Pageable pageable);
     
-    // Lọc tasks theo project và người dùng
+    // Tìm task theo ID và người dùng để đảm bảo quyền truy cập
+    @EntityGraph(attributePaths = {"tags", "project"})
+    Optional<Task> findByIdAndUser(Long id, User user);
+    
+    // Ghi đè phương thức findById để sử dụng EntityGraph
+    @Override
+    @EntityGraph(attributePaths = {"tags", "project"})
+    Optional<Task> findById(Long id);
+    
+    // Lọc tasks theo project và người dùng với entity graph
+    @EntityGraph(attributePaths = {"tags"})
     List<Task> findByProjectIdAndUser(Long projectId, User user);
     
+    // Phân trang cho findByProjectIdAndUser
+    @EntityGraph(attributePaths = {"tags"})
+    Page<Task> findByProjectIdAndUser(Long projectId, User user, Pageable pageable);
+    
     // Phương thức cũ - giữ để tương thích ngược
+    @EntityGraph(attributePaths = {"tags", "project"})
     List<Task> findByProjectId(Long projectId);
     
     // Lọc tasks theo deadline và người dùng
+    @EntityGraph(attributePaths = {"tags", "project"})
     List<Task> findByUserAndDueDateBefore(User user, LocalDateTime date);
     
+    // Phân trang cho findByUserAndDueDateBefore
+    @EntityGraph(attributePaths = {"tags", "project"})
+    Page<Task> findByUserAndDueDateBefore(User user, LocalDateTime date, Pageable pageable);
+    
+    @EntityGraph(attributePaths = {"tags", "project"})
     List<Task> findByDueDateBefore(LocalDateTime date);
     
     // Lọc tasks trong khoảng thời gian và theo người dùng

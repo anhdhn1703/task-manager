@@ -1,158 +1,147 @@
-import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Typography, Card, Alert, Space } from 'antd';
-import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, memo, useEffect } from 'react';
+import { Form, Input, Button, Card, Alert, Typography, Space } from 'antd';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
-const Login = () => {
-  const [loading, setLoading] = useState(false);
-  const [localError, setLocalError] = useState(null);
+const Login = memo(() => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  const { handleLoginWithRedirect, error: contextError, isAuthenticated } = useAuth();
+  const [localError, setLocalError] = useState('');
   
-  // Kiểm tra xem người dùng đã đăng nhập chưa
+  // Sử dụng hook auth mới
+  const { 
+    isLoading, 
+    error: authError, 
+    clearError, 
+    handleLoginWithRedirect,
+    isAuthenticated
+  } = useAuth();
+  
+  const location = useLocation();
+  
+  // Nếu người dùng đã đăng nhập, chuyển hướng đến trang chính
   useEffect(() => {
     if (isAuthenticated()) {
-      navigate('/dashboard');
+      const from = location.state?.from?.pathname || '/';
+      navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, location.state]);
 
-  // Xử lý đăng nhập
-  const onFinish = async (values) => {
+  // Xử lý form submit với useCallback để tránh tạo lại hàm mỗi khi render
+  const onFinish = useCallback(async (values) => {
     try {
-      setLoading(true);
-      setLocalError(null);
+      setLocalError('');
+      if (clearError) clearError();
       
-      // Ghi log dữ liệu đăng nhập để debug
-      console.log('Login page - Dữ liệu đăng nhập:', {
-        username: values.username,
-        password: values.password ? '******' : 'không có mật khẩu'
+      console.log('Login: Đang gửi yêu cầu đăng nhập:', {
+        username: values.username
       });
       
-      // Gọi API đăng nhập từ AuthContext
+      // Gọi hàm đăng nhập với chuyển hướng
       await handleLoginWithRedirect(values.username, values.password);
-      
-      console.log('Login page - Đăng nhập thành công');
     } catch (error) {
-      console.error('Login page - Lỗi khi đăng nhập:', error);
-      
-      // Xử lý các loại lỗi khác nhau
-      if (error.response) {
-        // Lỗi server có phản hồi
-        const { status, data } = error.response;
-        
-        if (status === 401) {
-          setLocalError('Tên đăng nhập hoặc mật khẩu không đúng.');
-        } else if (status === 403) {
-          setLocalError('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.');
-        } else if (data && data.message) {
-          setLocalError(data.message);
-        } else {
-          setLocalError(`Lỗi máy chủ: ${status}`);
-        }
-      } else if (error.message && error.message.includes('Network Error')) {
-        setLocalError('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.');
-      } else {
-        setLocalError(error.message || 'Đăng nhập thất bại. Vui lòng thử lại sau.');
-      }
-    } finally {
-      setLoading(false);
+      console.error('Login error:', error);
+      setLocalError(error.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin đăng nhập.');
     }
-  };
+  }, [handleLoginWithRedirect, clearError]);
 
-  // Hiển thị thông báo lỗi
-  const errorMessage = localError || contextError;
+  // Hiển thị lỗi - ưu tiên lỗi cục bộ
+  const errorMessage = localError || authError;
 
   return (
     <div style={{ 
-      maxWidth: '400px', 
-      margin: '50px auto', 
-      padding: '20px' 
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      minHeight: '100vh',
+      background: '#f0f2f5'
     }}>
-      <Card
-        bordered={false}
-        style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+      <Card 
+        style={{ 
+          width: 400, 
+          boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+          borderRadius: '8px'
+        }}
       >
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <div style={{ textAlign: 'center' }}>
-            <Title level={2}>Đăng nhập</Title>
-            <Text type="secondary">
-              Quản lý công việc hiệu quả với Task Manager
-            </Text>
-          </div>
-          
-          {errorMessage && (
-            <Alert
-              message="Lỗi đăng nhập"
-              description={errorMessage}
-              type="error"
-              showIcon
-              closable
-              onClose={() => setLocalError(null)}
-            />
-          )}
-          
-          <Form
-            name="login"
-            form={form}
-            onFinish={onFinish}
-            autoComplete="off"
-            layout="vertical"
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <Title level={2}>Đăng nhập</Title>
+          <p>Đăng nhập vào Hệ thống Quản lý Công việc</p>
+        </div>
+        
+        {errorMessage && (
+          <Alert 
+            message="Lỗi đăng nhập" 
+            description={errorMessage} 
+            type="error" 
+            closable 
+            style={{ marginBottom: 24 }}
+            onClose={() => {
+              setLocalError('');
+              if (clearError) clearError();
+            }}
+          />
+        )}
+        
+        <Form
+          name="login"
+          form={form}
+          initialValues={{ remember: true }}
+          onFinish={onFinish}
+          autoComplete="off"
+          layout="vertical"
+        >
+          <Form.Item
+            name="username"
+            rules={[
+              { required: true, message: 'Vui lòng nhập tên đăng nhập!' },
+            ]}
           >
-            <Form.Item
-              name="username"
-              rules={[
-                { required: true, message: 'Vui lòng nhập tên đăng nhập!' },
-                { min: 3, message: 'Tên đăng nhập phải có ít nhất 3 ký tự!' }
-              ]}
-            >
-              <Input 
-                prefix={<UserOutlined />} 
-                placeholder="Tên đăng nhập" 
-                size="large" 
-              />
-            </Form.Item>
+            <Input 
+              prefix={<UserOutlined />} 
+              placeholder="Tên đăng nhập" 
+              size="large"
+              autoFocus
+            />
+          </Form.Item>
 
-            <Form.Item
-              name="password"
-              rules={[
-                { required: true, message: 'Vui lòng nhập mật khẩu!' },
-                { min: 6, message: 'Mật khẩu phải có ít nhất 6 ký tự!' }
-              ]}
-            >
-              <Input.Password 
-                prefix={<LockOutlined />} 
-                placeholder="Mật khẩu" 
-                size="large" 
-              />
-            </Form.Item>
+          <Form.Item
+            name="password"
+            rules={[
+              { required: true, message: 'Vui lòng nhập mật khẩu!' },
+            ]}
+          >
+            <Input.Password 
+              prefix={<LockOutlined />} 
+              placeholder="Mật khẩu" 
+              size="large"
+            />
+          </Form.Item>
 
-            <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<LoginOutlined />}
-                loading={loading}
-                block
-                size="large"
-              >
-                Đăng nhập
-              </Button>
-            </Form.Item>
-          </Form>
-          
-          <div style={{ textAlign: 'center' }}>
-            <Text>
-              Chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link>
-            </Text>
-          </div>
-        </Space>
+          <Form.Item>
+            <Button 
+              type="primary" 
+              htmlType="submit" 
+              loading={isLoading}
+              size="large"
+              style={{ width: '100%' }}
+            >
+              Đăng nhập
+            </Button>
+          </Form.Item>
+        </Form>
+        
+        <div style={{ textAlign: 'center' }}>
+          <Space>
+            <span>Chưa có tài khoản?</span>
+            <Link to="/register">Đăng ký ngay</Link>
+          </Space>
+        </div>
       </Card>
     </div>
   );
-};
+});
 
 export default Login; 

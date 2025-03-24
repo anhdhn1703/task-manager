@@ -9,6 +9,7 @@ import com.net.ken.server.model.User;
 import com.net.ken.server.repository.NotificationRepository;
 import com.net.ken.server.repository.TaskRepository;
 import com.net.ken.server.repository.UserRepository;
+import com.net.ken.server.service.AuthService;
 import com.net.ken.server.service.NotificationService;
 import com.net.ken.server.util.SecurityUtils;
 import jakarta.persistence.EntityNotFoundException;
@@ -29,22 +30,22 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationRepository notificationRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
+    private final AuthService authService;
     
     @Autowired
     public NotificationServiceImpl(NotificationRepository notificationRepository, 
                                    TaskRepository taskRepository,
-                                   UserRepository userRepository) {
+                                   UserRepository userRepository,
+                                   AuthService authService) {
         this.notificationRepository = notificationRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
+        this.authService = authService;
     }
 
-    // Lấy người dùng hiện tại từ context bảo mật
-    private User getCurrentUser() {
-        String username = SecurityUtils.getCurrentUsername()
-            .orElseThrow(() -> new AccessDeniedException("Không tìm thấy thông tin người dùng hiện tại"));
-        return userRepository.findByUsername(username)
-            .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy người dùng: " + username));
+    // Lấy người dùng hiện tại từ AuthService
+    public User getCurrentUser() {
+        return authService.getCurrentUser();
     }
 
     @Override

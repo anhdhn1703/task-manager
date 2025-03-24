@@ -1,5 +1,6 @@
 package com.net.ken.server.service.impl;
 
+import com.net.ken.server.config.CacheConfig;
 import com.net.ken.server.dto.TagDTO;
 import com.net.ken.server.dto.TaskDTO;
 import com.net.ken.server.dto.TaskDTO.CreateTaskDTO;
@@ -17,6 +18,7 @@ import com.net.ken.server.repository.ProjectRepository;
 import com.net.ken.server.repository.TagRepository;
 import com.net.ken.server.repository.TaskRepository;
 import com.net.ken.server.repository.UserRepository;
+import com.net.ken.server.service.AuthService;
 import com.net.ken.server.service.TaskService;
 import com.net.ken.server.util.LogUtil;
 import com.net.ken.server.util.PerformanceUtil;
@@ -24,9 +26,13 @@ import com.net.ken.server.util.SecurityUtils;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -42,6 +48,7 @@ public class TaskServiceImpl implements TaskService {
     private final TagRepository tagRepository;
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final AuthService authService;
     private static final Logger log = LogUtil.getLogger(TaskServiceImpl.class);
 
     @Autowired
@@ -49,24 +56,24 @@ public class TaskServiceImpl implements TaskService {
                          ProjectRepository projectRepository, 
                          TagRepository tagRepository,
                          NotificationRepository notificationRepository,
-                         UserRepository userRepository) {
+                         UserRepository userRepository,
+                         AuthService authService) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
         this.tagRepository = tagRepository;
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
+        this.authService = authService;
         LogUtil.info(log, "TaskServiceImpl đã được khởi tạo");
     }
 
-    // Lấy người dùng hiện tại từ context bảo mật
-    private User getCurrentUser() {
-        String username = SecurityUtils.getCurrentUsername()
-            .orElseThrow(() -> new AccessDeniedException("Không tìm thấy thông tin người dùng hiện tại"));
-        return userRepository.findByUsername(username)
-            .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy người dùng: " + username));
+    // Lấy người dùng hiện tại từ AuthService
+    public User getCurrentUser() {
+        return authService.getCurrentUser();
     }
 
     @Override
+    @Cacheable(value = CacheConfig.TASK_CACHE, key = "'user-' + #root.target.getCurrentUser().getId()")
     public List<TaskDTO> getAllTasks() {
         User currentUser = getCurrentUser();
         LogUtil.debug(log, "Đang lấy tất cả các task cho người dùng {}", currentUser.getUsername());
@@ -81,6 +88,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
+    @Cacheable(value = CacheConfig.TASK_CACHE, key = "'task-' + #id + '-user-' + #root.target.getCurrentUser().getId()")
     public TaskDTO getTaskById(Long id) {
         User currentUser = getCurrentUser();
         LogUtil.debug(log, "Đang tìm task với ID: {}", id);
@@ -105,6 +113,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
+    @Cacheable(value = CacheConfig.TASK_CACHE, key = "'projectTasks-' + #projectId + '-user-' + #root.target.getCurrentUser().getId()")
     public List<TaskDTO> getTasksByProjectId(Long projectId) {
         User currentUser = getCurrentUser();
         LogUtil.debug(log, "Đang lấy các task theo projectId: {}", projectId);
@@ -167,6 +176,7 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConfig.TASK_CACHE}, allEntries = true)
     public TaskDTO createTask(CreateTaskDTO createTaskDTO) {
         User currentUser = getCurrentUser();
         LogUtil.debug(log, "Đang tạo task mới: {}", createTaskDTO.getTitle());
@@ -278,7 +288,11 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConfig.TASK_CACHE}, key = "'task-' + #id + '-user-' + #root.target.getCurrentUser().getId()")
     public TaskDTO updateTask(Long id, UpdateTaskDTO updateTaskDTO) {
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang cập nhật task với ID: {}", id);
+        
         Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy công việc với ID: " + id));
         
@@ -398,7 +412,11 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConfig.TASK_CACHE}, allEntries = true)
     public void deleteTask(Long id) {
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang xóa task với ID: {}", id);
+        
         if (!taskRepository.existsById(id)) {
             throw new EntityNotFoundException("Không tìm thấy công việc với ID: " + id);
         }
@@ -468,5 +486,95 @@ public class TaskServiceImpl implements TaskService {
         
         // Log thông báo
         LogUtil.info(log, "Task '{}' có trạng thái hạn mức: {}", task.getTitle(), task.getDueStatus());
+    }
+
+    @Override
+    @Cacheable(value = CacheConfig.TASK_CACHE, key = "'user-' + #root.target.getCurrentUser().getId() + '-paged-' + #pageable.pageNumber + '-' + #pageable.pageSize")
+    public Page<TaskDTO> getAllTasksPaged(Pageable pageable) {
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang lấy trang {} của tasks với kích thước trang {} cho người dùng {}", 
+                pageable.getPageNumber(), pageable.getPageSize(), currentUser.getUsername());
+        
+        return PerformanceUtil.measureExecutionTime(log, "getAllTasksPaged", () -> {
+            Page<Task> taskPage = taskRepository.findByUser(currentUser, pageable);
+            return taskPage.map(this::convertToDTO);
+        });
+    }
+    
+    @Override
+    @Cacheable(value = CacheConfig.TASK_CACHE, 
+            key = "'projectTasks-' + #projectId + '-user-' + #root.target.getCurrentUser().getId() + '-paged-' + #pageable.pageNumber + '-' + #pageable.pageSize")
+    public Page<TaskDTO> getTasksByProjectIdPaged(Long projectId, Pageable pageable) {
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang lấy trang {} của tasks theo projectId {} với kích thước trang {}", 
+                pageable.getPageNumber(), projectId, pageable.getPageSize());
+        
+        return PerformanceUtil.measureExecutionTime(log, "getTasksByProjectIdPaged", () -> {
+            // Kiểm tra quyền truy cập dự án
+            Project project = projectRepository.findById(projectId)
+                    .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy dự án với ID: " + projectId));
+            
+            if (project.getUser() != null && !project.getUser().getId().equals(currentUser.getId())) {
+                throw new AccessDeniedException("Không có quyền truy cập dự án này");
+            }
+            
+            Page<Task> taskPage = taskRepository.findByProjectIdAndUser(projectId, currentUser, pageable);
+            return taskPage.map(this::convertToDTO);
+        });
+    }
+
+    // Thêm tag vào task
+    @Override
+    @Transactional
+    @CacheEvict(value = {CacheConfig.TASK_CACHE}, key = "'task-' + #taskId + '-user-' + #root.target.getCurrentUser().getId()")
+    public TaskDTO addTagToTask(Long taskId, Long tagId) {
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang thêm tag {} vào task {}", tagId, taskId);
+        
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy công việc với ID: " + taskId));
+        
+        // Kiểm tra quyền truy cập
+        if (task.getUser() != null && !task.getUser().getId().equals(currentUser.getId())) {
+            throw new AccessDeniedException("Không có quyền truy cập công việc này");
+        }
+        
+        Tag tag = tagRepository.findById(tagId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy thẻ với ID: " + tagId));
+        
+        // Kiểm tra quyền truy cập tag
+        if (tag.getUser() != null && !tag.getUser().getId().equals(currentUser.getId())) {
+            throw new AccessDeniedException("Không có quyền sử dụng thẻ này");
+        }
+        
+        task.getTags().add(tag);
+        Task updatedTask = taskRepository.save(task);
+        
+        return convertToDTO(updatedTask);
+    }
+    
+    // Xóa tag khỏi task
+    @Override
+    @Transactional
+    @CacheEvict(value = {CacheConfig.TASK_CACHE}, key = "'task-' + #taskId + '-user-' + #root.target.getCurrentUser().getId()")
+    public TaskDTO removeTagFromTask(Long taskId, Long tagId) {
+        User currentUser = getCurrentUser();
+        LogUtil.debug(log, "Đang xóa tag {} khỏi task {}", tagId, taskId);
+        
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy công việc với ID: " + taskId));
+        
+        // Kiểm tra quyền truy cập
+        if (task.getUser() != null && !task.getUser().getId().equals(currentUser.getId())) {
+            throw new AccessDeniedException("Không có quyền truy cập công việc này");
+        }
+        
+        Tag tag = tagRepository.findById(tagId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy thẻ với ID: " + tagId));
+        
+        task.getTags().remove(tag);
+        Task updatedTask = taskRepository.save(task);
+        
+        return convertToDTO(updatedTask);
     }
 }

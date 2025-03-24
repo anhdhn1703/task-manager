@@ -4,6 +4,10 @@ import { message } from 'antd';
 // Lấy URL API từ biến môi trường
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
+// Key lưu trữ token trong localStorage
+const AUTH_TOKEN_KEY = 'auth_token';
+const REFRESH_TOKEN_KEY = 'refresh_token';
+
 // Tạo instance Axios với cấu hình mặc định
 const api = axios.create({
   baseURL: apiUrl,
@@ -38,20 +42,31 @@ const getCurrentUserId = () => {
   }
 };
 
+// Biến để theo dõi refresh token đang xử lý
+let isRefreshing = false;
+let failedQueue = [];
+
+// Xử lý hàng đợi các request bị lỗi
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  
+  failedQueue = [];
+};
+
 // Interceptor cho request
 api.interceptors.request.use(
   (config) => {
     // Thêm token xác thực vào header nếu có
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
-    
-    // Không thêm X-User-ID nữa vì gây lỗi CORS
-    // const userId = getCurrentUserId();
-    // if (userId) {
-    //   config.headers['X-User-ID'] = userId;
-    // }
     
     return config;
   },
@@ -63,32 +78,139 @@ api.interceptors.request.use(
 // Interceptor cho response
 api.interceptors.response.use(
   (response) => {
+    // Log thông tin phản hồi cho debug
     console.log(`api.js: Phản hồi thành công từ ${response.config.url}`, response);
     
-    // Trả về toàn bộ response thay vì chỉ data
+    // Trích xuất data theo cấu trúc ResponseDTO
+    const responseData = response.data;
+    
+    // Kiểm tra cấu trúc phản hồi
+    if (responseData && typeof responseData === 'object') {
+      // Kiểm tra thành công/thất bại từ success flag
+      if (responseData.success === false) {
+        console.warn('api.js: Phản hồi có trạng thái success = false', responseData);
+        
+        // Nếu có thông báo lỗi, hiển thị cho người dùng
+        if (responseData.message) {
+          message.error(responseData.message);
+        }
+        
+        // Tạo lỗi từ phản hồi
+        const error = new Error(responseData.message || 'Lỗi không xác định');
+        error.response = response;
+        error.errorCode = responseData.errorCode;
+        
+        return Promise.reject(error);
+      }
+      
+      // Trả về toàn bộ response thay vì chỉ response.data
+      // Điều này sẽ đảm bảo rằng các component có thể truy cập trực tiếp đến dữ liệu từ response.data
+      return response;
+    }
+    
+    // Nếu không theo cấu trúc chuẩn, trả về nguyên bản
     return response;
   },
-  (error) => {
+  async (error) => {
     console.error('api.js: Lỗi phản hồi từ server:', error);
+    
+    const originalRequest = error.config;
     
     // Xử lý các loại lỗi khác nhau
     if (error.response) {
       // Phản hồi từ máy chủ với mã lỗi
-      const { status, data } = error.response;
+      const { status } = error.response;
       
-      if (status === 401) {
-        // Lỗi xác thực - đăng xuất người dùng
-        console.log('api.js: Lỗi xác thực 401, đang chuyển hướng đến trang đăng nhập');
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_info');
+      // Token hết hạn - thử refresh token
+      if (status === 401 && !originalRequest._retry) {
+        if (isRefreshing) {
+          // Nếu đang trong quá trình refresh token, thêm request vào hàng đợi
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          })
+            .then(token => {
+              originalRequest.headers['Authorization'] = `Bearer ${token}`;
+              return api(originalRequest);
+            })
+            .catch(err => {
+              return Promise.reject(err);
+            });
+        }
         
-        // Thông báo cho người dùng
-        message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+        originalRequest._retry = true;
+        isRefreshing = true;
         
-        // Chuyển hướng đến trang đăng nhập sau 1 giây
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 1000);
+        const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+        
+        if (!refreshToken) {
+          // Không có refresh token - chuyển hướng đến trang đăng nhập
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+          localStorage.removeItem(REFRESH_TOKEN_KEY);
+          localStorage.removeItem('user_info');
+          
+          message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+          
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 1000);
+          
+          return Promise.reject(error);
+        }
+        
+        try {
+          // Gọi API để refresh token
+          const response = await axios.post(`${apiUrl}/auth/refresh-token`, {
+            refreshToken: refreshToken
+          });
+          
+          if (response.data && response.data.success && response.data.data && response.data.data.token) {
+            const responseData = response.data.data;
+            const newToken = responseData.token;
+            const newRefreshToken = responseData.refreshToken || refreshToken;
+            
+            // Lưu token mới
+            localStorage.setItem(AUTH_TOKEN_KEY, newToken);
+            localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
+            
+            // Cập nhật header cho request hiện tại
+            api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+            originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+            
+            // Xử lý hàng đợi các request bị lỗi
+            processQueue(null, newToken);
+            
+            // Thử lại request ban đầu
+            return api(originalRequest);
+          } else {
+            // Refresh token thất bại, chuyển hướng đến trang đăng nhập
+            processQueue(new Error('Refresh token failed'));
+            localStorage.removeItem(AUTH_TOKEN_KEY);
+            localStorage.removeItem(REFRESH_TOKEN_KEY);
+            localStorage.removeItem('user_info');
+            
+            message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+            
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 1000);
+          }
+        } catch (refreshError) {
+          // Xử lý lỗi khi refresh token
+          processQueue(refreshError);
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+          localStorage.removeItem(REFRESH_TOKEN_KEY);
+          localStorage.removeItem('user_info');
+          
+          message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+          
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 1000);
+        } finally {
+          isRefreshing = false;
+        }
+        
+        return Promise.reject(error);
       } 
       else if (status === 403) {
         message.error('Bạn không có quyền thực hiện hành động này');
@@ -99,9 +221,9 @@ api.interceptors.response.use(
       else if (status === 500) {
         message.error('Lỗi máy chủ. Vui lòng thử lại sau.');
       }
-      else if (data && data.message) {
+      else if (error.response.data && error.response.data.message) {
         // Hiển thị thông báo lỗi từ server nếu có
-        message.error(data.message);
+        message.error(error.response.data.message);
       }
     } 
     else if (error.request) {

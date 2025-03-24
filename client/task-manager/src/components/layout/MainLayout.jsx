@@ -48,14 +48,25 @@ const MainLayout = () => {
       }
       
       // Lấy danh sách thông báo chưa đọc
-      const notifications = await notificationService.getNotifications({ read: false });
-      setNotifications(notifications.slice(0, 5)); // Lấy 5 thông báo gần nhất
+      const unreadNotifications = await notificationService.getUnreadNotifications();
+      
+      // Kiểm tra dữ liệu trả về
+      if (Array.isArray(unreadNotifications)) {
+        setNotifications(unreadNotifications.slice(0, 5)); // Lấy 5 thông báo gần nhất
+      } else {
+        console.error("Dữ liệu thông báo không hợp lệ:", unreadNotifications);
+        setNotifications([]);
+      }
       
       // Lấy số lượng thông báo chưa đọc
       const count = await notificationService.getUnreadCount();
-      setUnreadCount(count);
+      setUnreadCount(count || 0);
     } catch (error) {
       console.error("Error fetching unread notifications:", error);
+      // Đặt mảng rỗng để tránh lỗi
+      setNotifications([]);
+      setUnreadCount(0);
+      
       // Nếu lỗi liên quan đến xác thực (401), logout và chuyển hướng
       if (error.response && error.response.status === 401) {
         message.error("Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.");

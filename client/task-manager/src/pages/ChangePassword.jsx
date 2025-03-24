@@ -19,7 +19,8 @@ const ChangePassword = () => {
       setError('');
       setSuccess(false);
       
-      const result = await changePassword(values);
+      const { oldPassword, newPassword } = values;
+      const result = await changePassword(oldPassword, newPassword);
       
       if (result) {
         setSuccess(true);
