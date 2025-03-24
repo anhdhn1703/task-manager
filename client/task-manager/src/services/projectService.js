@@ -56,7 +56,14 @@ const projectService = {
       
       console.log('projectService: Đang lấy danh sách dự án cho người dùng hiện tại');
       const response = await api.get('/projects');
-      return response.data;
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error('projectService: Không có dữ liệu trả về từ API /projects');
+        return [];
+      }
+      
+      return response.data.data || [];
     } catch (error) {
       console.error('projectService - Lỗi khi lấy danh sách dự án:', error);
       throw error;
@@ -72,7 +79,14 @@ const projectService = {
     try {
       console.log(`projectService: Đang lấy thông tin dự án ID: ${projectId}`);
       const response = await api.get(`/projects/${projectId}`);
-      return response.data;
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error(`projectService: Không có dữ liệu trả về từ API /projects/${projectId}`);
+        return null;
+      }
+      
+      return response.data.data;
     } catch (error) {
       console.error(`projectService - Lỗi khi lấy thông tin dự án ID ${projectId}:`, error);
       throw error;

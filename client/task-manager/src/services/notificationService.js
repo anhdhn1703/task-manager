@@ -121,7 +121,14 @@ const notificationService = {
       // Sử dụng endpoint /unread có sẵn và đếm số phần tử
       console.log('notificationService: Đang lấy số lượng thông báo chưa đọc');
       const response = await api.get('/notifications/unread');
-      return response.data.length; // Trả về số lượng thông báo
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data || !response.data.data) {
+        console.error('notificationService: Không có dữ liệu trả về từ API /notifications/unread');
+        return 0;
+      }
+      
+      return response.data.data.length || 0; // Trả về số lượng thông báo
     } catch (error) {
       console.error('notificationService - Lỗi khi lấy số lượng thông báo chưa đọc:', error);
       return 0; // Trả về 0 nếu có lỗi
@@ -132,8 +139,40 @@ const notificationService = {
    * Lấy tất cả thông báo
    */
   getAllNotifications: async () => {
-    const response = await api.get('/notifications');
-    return response.data;
+    try {
+      const response = await api.get('/notifications');
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error('notificationService: Không có dữ liệu trả về từ API /notifications');
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error('notificationService - Lỗi khi lấy tất cả thông báo:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Lấy thông báo chưa đọc
+   */
+  getUnreadNotifications: async () => {
+    try {
+      const response = await api.get('/notifications/unread');
+      
+      // Kiểm tra dữ liệu trả về
+      if (!response || !response.data) {
+        console.error('notificationService: Không có dữ liệu trả về từ API /notifications/unread');
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error('notificationService - Lỗi khi lấy thông báo chưa đọc:', error);
+      return [];
+    }
   },
 
   /**

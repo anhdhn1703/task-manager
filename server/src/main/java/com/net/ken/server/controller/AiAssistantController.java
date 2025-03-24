@@ -12,7 +12,6 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/ai-assistant")
-@CrossOrigin(origins = "*")
 public class AiAssistantController {
 
     private final TaskService taskService;

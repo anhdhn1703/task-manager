@@ -1,15 +1,19 @@
 package com.net.ken.server.service.impl;
 
+import com.net.ken.server.config.CacheConfig;
 import com.net.ken.server.dto.ProjectDTO;
 import com.net.ken.server.model.Project;
 import com.net.ken.server.model.Task;
 import com.net.ken.server.model.User;
 import com.net.ken.server.repository.ProjectRepository;
 import com.net.ken.server.repository.UserRepository;
+import com.net.ken.server.service.AuthService;
 import com.net.ken.server.service.ProjectService;
 import com.net.ken.server.util.SecurityUtils;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,22 +26,22 @@ public class ProjectServiceImpl implements ProjectService {
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final AuthService authService;
 
     @Autowired
-    public ProjectServiceImpl(ProjectRepository projectRepository, UserRepository userRepository) {
+    public ProjectServiceImpl(ProjectRepository projectRepository, UserRepository userRepository, AuthService authService) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
+        this.authService = authService;
     }
     
-    // Lấy người dùng hiện tại từ context bảo mật
-    private User getCurrentUser() {
-        String username = SecurityUtils.getCurrentUsername()
-            .orElseThrow(() -> new AccessDeniedException("Không tìm thấy thông tin người dùng hiện tại"));
-        return userRepository.findByUsername(username)
-            .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy người dùng: " + username));
+    // Lấy người dùng hiện tại từ AuthService
+    public User getCurrentUser() {
+        return authService.getCurrentUser();
     }
 
     @Override
+    @Cacheable(value = CacheConfig.PROJECT_CACHE, key = "'user-' + #root.target.getCurrentUser().getId()")
     public List<ProjectDTO> getAllProjects() {
         User currentUser = getCurrentUser();
         return projectRepository.findByUser(currentUser).stream()
@@ -46,6 +50,7 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
+    @Cacheable(value = CacheConfig.PROJECT_CACHE, key = "'project-' + #id + '-user-' + #root.target.getCurrentUser().getId()")
     public ProjectDTO getProjectById(Long id) {
         User currentUser = getCurrentUser();
         Project project = projectRepository.findById(id)
@@ -61,6 +66,7 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConfig.PROJECT_CACHE}, allEntries = true)
     public ProjectDTO createProject(ProjectDTO projectDTO) {
         User currentUser = getCurrentUser();
         
@@ -75,6 +81,8 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConfig.PROJECT_CACHE}, 
+                key = "'project-' + #id + '-user-' + #root.target.getCurrentUser().getId()")
     public ProjectDTO updateProject(Long id, ProjectDTO projectDTO) {
         User currentUser = getCurrentUser();
         Project project = projectRepository.findById(id)
@@ -94,6 +102,7 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {CacheConfig.PROJECT_CACHE}, allEntries = true)
     public void deleteProject(Long id) {
         User currentUser = getCurrentUser();
         Project project = projectRepository.findById(id)

@@ -13,7 +13,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/system")
-@CrossOrigin(origins = "*")
 public class SystemController {
 
     private static final Logger log = LogUtil.getLogger(SystemController.class);
@@ -73,7 +72,8 @@ public class SystemController {
         if (type == null || type.equalsIgnoreCase("general")) {
             throw new RuntimeException("Đây là exception thử nghiệm tổng quát");
         } else if (type.equalsIgnoreCase("notFound")) {
-            throw new com.net.ken.server.exception.TaskManagerException.ResourceNotFoundException("TestResource", "id", "test-id");
+            throw new com.net.ken.server.exception.TaskManagerException.ResourceNotFoundException(
+                    "Không tìm thấy tài nguyên TestResource với ID: test-id");
         } else if (type.equalsIgnoreCase("validation")) {
             throw new com.net.ken.server.exception.TaskManagerException.ValidationException("Đây là lỗi validation thử nghiệm");
         } else if (type.equalsIgnoreCase("business")) {

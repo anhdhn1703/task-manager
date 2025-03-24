@@ -1,64 +1,78 @@
 package com.net.ken.server.controller;
 
+import com.net.ken.server.dto.ResponseDTO;
 import com.net.ken.server.dto.auth.ChangePasswordRequest;
 import com.net.ken.server.dto.auth.JwtResponse;
 import com.net.ken.server.dto.auth.LoginRequest;
+import com.net.ken.server.dto.auth.RefreshTokenRequest;
 import com.net.ken.server.dto.auth.RegisterRequest;
+import com.net.ken.server.model.User;
 import com.net.ken.server.service.AuthService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "*")
+@RequiredArgsConstructor
+@Slf4j
 public class AuthController {
-    @Autowired
-    private AuthService authService;
+    
+    private final AuthService authService;
 
     @PostMapping("/login")
-    public ResponseEntity<JwtResponse> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
-        JwtResponse jwtResponse = authService.authenticateUser(loginRequest);
-        return ResponseEntity.ok(jwtResponse);
+    public ResponseEntity<ResponseDTO<JwtResponse>> login(@Valid @RequestBody LoginRequest loginRequest) {
+        log.info("AuthController: Xử lý yêu cầu đăng nhập cho username: {}", loginRequest.getUsername());
+        ResponseDTO<JwtResponse> response = authService.authenticateUser(loginRequest);
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/register")
-    public ResponseEntity<JwtResponse> registerUser(@Valid @RequestBody RegisterRequest registerRequest) {
-        JwtResponse jwtResponse = authService.registerUser(registerRequest);
-        return ResponseEntity.ok(jwtResponse);
+    public ResponseEntity<ResponseDTO<JwtResponse>> register(@Valid @RequestBody RegisterRequest registerRequest) {
+        log.info("AuthController: Xử lý yêu cầu đăng ký cho username: {}", registerRequest.getUsername());
+        ResponseDTO<JwtResponse> response = authService.registerUser(registerRequest);
+        return ResponseEntity.ok(response);
     }
-
-    @GetMapping("/validate-token")
-    public ResponseEntity<JwtResponse> validateToken(@RequestHeader("Authorization") String authHeader) {
-        // Trích xuất token từ header (loại bỏ tiền tố 'Bearer ')
-        String token = authHeader.substring(7);
-        
-        // Xác thực token và lấy thông tin người dùng
-        JwtResponse jwtResponse = authService.validateToken(token);
-        
-        return ResponseEntity.ok(jwtResponse);
-    }
-
+    
     @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String username = authentication.getName();
+    public ResponseEntity<ResponseDTO<Void>> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request) {
+        log.info("AuthController: Xử lý yêu cầu đổi mật khẩu");
+        User currentUser = authService.getCurrentUser();
+        ResponseDTO<Void> response = authService.changePassword(request, currentUser.getId());
         
-        boolean result = authService.changePassword(username, request);
-        
-        if (result) {
-            return ResponseEntity.ok().body(
-                    Map.of("message", "Mật khẩu đã được thay đổi thành công")
-            );
-        } else {
-            return ResponseEntity.badRequest().body(
-                    Map.of("message", "Không thể thay đổi mật khẩu")
-            );
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/refresh-token")
+    public ResponseEntity<ResponseDTO<JwtResponse>> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        log.info("AuthController: Xử lý yêu cầu làm mới token");
+        ResponseDTO<JwtResponse> response = authService.refreshToken(request.getRefreshToken());
+        return ResponseEntity.ok(response);
+    }
+    
+    @GetMapping("/validate-token")
+    public ResponseEntity<ResponseDTO<JwtResponse>> validateToken(@RequestHeader("Authorization") String authHeader) {
+        log.info("AuthController: Xử lý yêu cầu xác thực token");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            // Trích xuất token từ header (loại bỏ tiền tố 'Bearer ')
+            String token = authHeader.substring(7);
+            
+            // Xác thực token và lấy thông tin người dùng
+            ResponseDTO<JwtResponse> response = authService.validateToken(token);
+            
+            return ResponseEntity.ok(response);
         }
+        
+        return ResponseEntity.badRequest().build();
+    }
+    
+    @GetMapping("/current-user")
+    public ResponseEntity<ResponseDTO<User>> getCurrentUser() {
+        log.info("AuthController: Xử lý yêu cầu lấy thông tin người dùng hiện tại");
+        User currentUser = authService.getCurrentUser();
+        return ResponseEntity.ok(ResponseDTO.success(currentUser));
     }
 } 

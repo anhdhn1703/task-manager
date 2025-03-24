@@ -65,31 +65,28 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       console.log(`AuthContext: Đang đăng nhập với username: ${username}`);
+      
+      // Log trước khi gọi service để theo dõi
+      console.log('AuthContext: Chuẩn bị gọi authService.login');
+      
       const response = await authService.login(username, password);
       
+      // Log chi tiết phản hồi để kiểm tra cấu trúc dữ liệu
       console.log("AuthContext: Phản hồi đăng nhập:", JSON.stringify(response));
+      console.log("AuthContext: Chi tiết phản hồi:", {
+        token: response?.token ? 'Có token' : 'Không có token', 
+        refreshToken: response?.refreshToken ? 'Có refresh token' : 'Không có refresh token',
+        user: response?.user ? 'Có dữ liệu user' : 'Không có dữ liệu user'
+      });
       
       // Kiểm tra xem phản hồi có chứa dữ liệu hợp lệ không
       if (!response || !response.token) {
-        throw new Error('Phản hồi từ máy chủ không có token');
+        console.error('AuthContext: Phản hồi không hợp lệ, không có token', response);
+        throw new Error('Phản hồi từ máy chủ không có token. Vui lòng thử lại hoặc liên hệ quản trị viên.');
       }
       
       // Tạo đối tượng user từ phản hồi
-      let userData = null;
-      
-      if (response.user) {
-        // Nếu phản hồi có trường user, sử dụng nó
-        userData = response.user;
-      } else if (response.username) {
-        // Nếu thông tin user nằm trực tiếp trong response, tạo đối tượng user
-        userData = {
-          id: response.id,
-          username: response.username,
-          email: response.email,
-          fullName: response.fullName,
-          roles: response.roles || []
-        };
-      }
+      let userData = response.user;
       
       // Kiểm tra và thiết lập thông tin người dùng
       if (userData) {
@@ -99,13 +96,12 @@ export const AuthProvider = ({ children }) => {
         const displayName = userData.fullName || userData.username || 'Người dùng';
         message.success(`Chào mừng ${displayName} đã quay trở lại!`);
         
-        console.log("AuthContext: Đăng nhập thành công, đã thiết lập user:", 
-          userData.username || 'không có username');
+        console.log("AuthContext: Đăng nhập thành công, đã thiết lập user:", userData);
         
         return userData;
       } else {
-        console.error("AuthContext: Phản hồi không có thông tin người dùng");
-        throw new Error('Phản hồi từ máy chủ không có thông tin người dùng');
+        console.error('AuthContext: Không có thông tin người dùng trong phản hồi', response);
+        throw new Error('Không tìm thấy thông tin người dùng trong phản hồi');
       }
     } catch (err) {
       console.error("AuthContext - Lỗi đăng nhập:", err);
@@ -262,7 +258,8 @@ export const AuthProvider = ({ children }) => {
     logout,
     changePassword,
     isAuthenticated,
-    hasPermission
+    hasPermission,
+    clearError: () => setError(null)
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
