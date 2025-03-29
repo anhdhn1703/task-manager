@@ -50,18 +50,43 @@ const Dashboard = () => {
           return;
         }
         
-        const [tasksData, projectsData] = await Promise.all([
-          taskService.getTasks(),
-          projectService.getProjects()
+        console.log('Dashboard: Đang lấy dữ liệu...');
+        
+        // Sử dụng Promise.all để gọi các API đồng thời
+        const [projectsData, tasksData] = await Promise.all([
+          projectService.getAllProjects(),
+          taskService.getAllTasks()
         ]);
         
+        console.log('Dashboard: Dữ liệu projects:', projectsData);
+        console.log('Dashboard: Dữ liệu tasks:', tasksData);
+        
+        // Chi tiết hơn về cấu trúc
+        if (!Array.isArray(projectsData)) {
+          console.error('Dashboard: projectsData không phải là mảng!', { 
+            type: typeof projectsData,
+            value: projectsData
+          });
+        }
+        
+        if (!Array.isArray(tasksData)) {
+          console.error('Dashboard: tasksData không phải là mảng!', { 
+            type: typeof tasksData,
+            value: tasksData
+          });
+        }
+        
+        // Đảm bảo dữ liệu là mảng
+        const projects = Array.isArray(projectsData) ? projectsData : [];
+        const tasks = Array.isArray(tasksData) ? tasksData : [];
+        
         // Tính toán số liệu thống kê
-        const totalProjects = projectsData.length;
-        const totalTasks = tasksData.length;
-        const completedTasks = tasksData.filter(task => task.status === 'COMPLETED').length;
+        const totalProjects = projects.length;
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(task => task.status === 'COMPLETED').length;
         
         // Đếm công việc sắp đến hạn hoặc trễ hạn
-        const upcomingDeadlines = tasksData.filter(
+        const upcomingDeadlines = tasks.filter(
           task => (task.dueStatus === 'DUE_SOON' || task.dueStatus === 'OVERDUE') && task.status !== 'COMPLETED'
         ).length;
         
@@ -74,7 +99,7 @@ const Dashboard = () => {
         
         // Xử lý dữ liệu biểu đồ (số lượng công việc theo trạng thái)
         const statusGroups = {};
-        tasksData.forEach(task => {
+        tasks.forEach(task => {
           if (!statusGroups[task.status]) {
             statusGroups[task.status] = 0;
           }
@@ -87,13 +112,13 @@ const Dashboard = () => {
         })));
         
         // Các dự án gần đây (5 dự án mới nhất)
-        const sortedProjects = [...projectsData].sort(
+        const sortedProjects = [...projects].sort(
           (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
         );
         setRecentProjects(sortedProjects.slice(0, 5));
         
         // Công việc sắp đến hạn
-        const upcomingTasksList = tasksData
+        const upcomingTasksList = tasks
           .filter(task => (task.dueStatus === 'DUE_SOON' || task.dueStatus === 'OVERDUE') && task.status !== 'COMPLETED')
           .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
           .slice(0, 5);
@@ -101,7 +126,7 @@ const Dashboard = () => {
         
         // Đề xuất tối ưu hóa công việc dựa trên ưu tiên và deadline
         const now = new Date();
-        const optimizationCandidates = tasksData
+        const optimizationCandidates = tasks
           .filter(task => task.status !== 'COMPLETED' && task.dueDate)
           .sort((a, b) => {
             // Ưu tiên các việc trễ hạn

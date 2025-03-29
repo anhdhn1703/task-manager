@@ -1,227 +1,281 @@
 import api from './api';
 
-// Helper để lấy ID người dùng hiện tại từ localStorage
-const getCurrentUserId = () => {
-  try {
-    const userInfo = localStorage.getItem('user_info');
-    
-    // Kiểm tra xem userInfo có tồn tại không
-    if (!userInfo || userInfo === 'undefined' || userInfo === 'null') {
-      console.log('notificationService: Không tìm thấy thông tin người dùng trong localStorage');
-      return null;
-    }
-    
-    const user = JSON.parse(userInfo);
-    
-    if (!user || !user.id) {
-      console.log('notificationService: Thông tin người dùng không có ID:', user);
-      return null;
-    }
-    
-    return user.id;
-  } catch (error) {
-    console.error('notificationService: Lỗi khi lấy ID người dùng:', error);
-    return null;
-  }
-};
-
 const notificationService = {
   /**
-   * Lấy tất cả thông báo của người dùng
+   * Lấy tất cả thông báo của người dùng hiện tại
    * @returns {Promise<Array>} Danh sách thông báo
-   */
-  getNotifications: async () => {
-    try {
-      // Không cần kiểm tra userId nữa vì server đã xác thực qua token JWT
-      // const userId = getCurrentUserId();
-      // if (!userId) {
-      //   console.warn('notificationService: Không thể lấy thông báo vì không có ID người dùng');
-      //   throw new Error('Vui lòng đăng nhập để xem thông báo');
-      // }
-      
-      console.log('notificationService: Đang lấy thông báo cho người dùng hiện tại');
-      const response = await api.get('/notifications');
-      return response.data;
-    } catch (error) {
-      console.error('notificationService - Lỗi khi lấy thông báo:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Đánh dấu thông báo là đã đọc
-   * @param {number} notificationId - ID của thông báo
-   * @returns {Promise<Object>} Thông báo đã cập nhật
-   */
-  markAsRead: async (notificationId) => {
-    try {
-      console.log(`notificationService: Đang đánh dấu thông báo ID: ${notificationId} là đã đọc`);
-      const response = await api.patch(`/notifications/${notificationId}/read`);
-      return response.data;
-    } catch (error) {
-      console.error(`notificationService - Lỗi khi đánh dấu thông báo ID ${notificationId} là đã đọc:`, error);
-      throw error;
-    }
-  },
-
-  /**
-   * Đánh dấu tất cả thông báo là đã đọc
-   * @returns {Promise<Object>} Kết quả cập nhật
-   */
-  markAllAsRead: async () => {
-    try {
-      // Sử dụng endpoint /read-all theo controller
-      console.log('notificationService: Đang đánh dấu tất cả thông báo là đã đọc');
-      const response = await api.patch('/notifications/read-all');
-      return response.data;
-    } catch (error) {
-      console.error('notificationService - Lỗi khi đánh dấu tất cả thông báo là đã đọc:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Xóa một thông báo
-   * @param {number} notificationId - ID của thông báo
-   * @returns {Promise<Object>} Kết quả xóa
-   */
-  deleteNotification: async (notificationId) => {
-    try {
-      console.log(`notificationService: Đang xóa thông báo ID: ${notificationId}`);
-      const response = await api.delete(`/notifications/${notificationId}`);
-      return response.data;
-    } catch (error) {
-      console.error(`notificationService - Lỗi khi xóa thông báo ID ${notificationId}:`, error);
-      throw error;
-    }
-  },
-
-  /**
-   * Xóa tất cả thông báo
-   * @returns {Promise<Object>} Kết quả xóa
-   */
-  deleteAllNotifications: async () => {
-    try {
-      // Không cần kiểm tra userId nữa vì server sẽ lấy từ JWT token
-      console.log('notificationService: Đang xóa tất cả thông báo');
-      const response = await api.delete('/notifications');
-      return response.data;
-    } catch (error) {
-      console.error('notificationService - Lỗi khi xóa tất cả thông báo:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Lấy số lượng thông báo chưa đọc
-   * @returns {Promise<number>}
-   */
-  getUnreadCount: async () => {
-    try {
-      // Sử dụng endpoint /unread có sẵn và đếm số phần tử
-      console.log('notificationService: Đang lấy số lượng thông báo chưa đọc');
-      const response = await api.get('/notifications/unread');
-      
-      // Kiểm tra dữ liệu trả về
-      if (!response || !response.data || !response.data.data) {
-        console.error('notificationService: Không có dữ liệu trả về từ API /notifications/unread');
-        return 0;
-      }
-      
-      return response.data.data.length || 0; // Trả về số lượng thông báo
-    } catch (error) {
-      console.error('notificationService - Lỗi khi lấy số lượng thông báo chưa đọc:', error);
-      return 0; // Trả về 0 nếu có lỗi
-    }
-  },
-
-  /**
-   * Lấy tất cả thông báo
    */
   getAllNotifications: async () => {
     try {
+      console.log('NotificationService: Đang lấy tất cả thông báo');
       const response = await api.get('/notifications');
       
-      // Kiểm tra dữ liệu trả về
       if (!response || !response.data) {
-        console.error('notificationService: Không có dữ liệu trả về từ API /notifications');
+        console.error('NotificationService: Không có dữ liệu từ API /notifications');
         return [];
       }
       
       return response.data.data || [];
     } catch (error) {
-      console.error('notificationService - Lỗi khi lấy tất cả thông báo:', error);
+      console.error('NotificationService: Lỗi khi lấy tất cả thông báo', error);
       return [];
     }
   },
-
+  
   /**
-   * Lấy thông báo chưa đọc
+   * Lấy chi tiết thông báo theo ID
+   * @param {number} id ID của thông báo
+   * @returns {Promise<Object>} Thông tin chi tiết thông báo
+   */
+  getNotificationById: async (id) => {
+    try {
+      console.log(`NotificationService: Đang lấy thông báo với ID ${id}`);
+      const response = await api.get(`/notifications/${id}`);
+      
+      if (!response || !response.data) {
+        console.error(`NotificationService: Không có dữ liệu từ API /notifications/${id}`);
+        return null;
+      }
+      
+      return response.data.data;
+    } catch (error) {
+      console.error(`NotificationService: Lỗi khi lấy thông báo ID ${id}`, error);
+      return null;
+    }
+  },
+  
+  /**
+   * Lấy các thông báo chưa đọc
+   * @returns {Promise<Array>} Danh sách thông báo chưa đọc
    */
   getUnreadNotifications: async () => {
     try {
+      console.log('NotificationService: Đang lấy thông báo chưa đọc');
       const response = await api.get('/notifications/unread');
       
-      // Kiểm tra dữ liệu trả về
       if (!response || !response.data) {
-        console.error('notificationService: Không có dữ liệu trả về từ API /notifications/unread');
+        console.error('NotificationService: Không có dữ liệu từ API /notifications/unread');
         return [];
       }
       
       return response.data.data || [];
     } catch (error) {
-      console.error('notificationService - Lỗi khi lấy thông báo chưa đọc:', error);
+      console.error('NotificationService: Lỗi khi lấy thông báo chưa đọc', error);
       return [];
     }
   },
-
-  /**
-   * Lấy chi tiết thông báo theo ID
-   * @param {number} id - ID của thông báo
-   */
-  getNotificationById: async (id) => {
-    const response = await api.get(`/notifications/${id}`);
-    return response.data;
-  },
-
+  
   /**
    * Lấy thông báo theo công việc
-   * @param {number} taskId - ID của công việc
+   * @param {number} taskId ID của công việc
+   * @returns {Promise<Array>} Danh sách thông báo
    */
   getNotificationsByTaskId: async (taskId) => {
-    const response = await api.get(`/notifications/task/${taskId}`);
-    return response.data;
+    try {
+      console.log(`NotificationService: Đang lấy thông báo cho task ID ${taskId}`);
+      const response = await api.get(`/notifications/task/${taskId}`);
+      
+      if (!response || !response.data) {
+        console.error(`NotificationService: Không có dữ liệu từ API /notifications/task/${taskId}`);
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error(`NotificationService: Lỗi khi lấy thông báo cho task ID ${taskId}`, error);
+      return [];
+    }
   },
-
+  
   /**
-   * Lấy thông báo gần đây
-   * @param {number} days - Số ngày gần đây
+   * Lấy thông báo gần đây trong số ngày
+   * @param {number} days Số ngày gần đây
+   * @returns {Promise<Array>} Danh sách thông báo
    */
-  getRecentNotifications: async (days) => {
-    const response = await api.get(`/notifications/recent/${days}`);
-    return response.data;
+  getRecentNotifications: async (days = 7) => {
+    try {
+      console.log(`NotificationService: Đang lấy thông báo trong ${days} ngày gần đây`);
+      const response = await api.get(`/notifications/recent/${days}`);
+      
+      if (!response || !response.data) {
+        console.error(`NotificationService: Không có dữ liệu từ API /notifications/recent/${days}`);
+        return [];
+      }
+      
+      return response.data.data || [];
+    } catch (error) {
+      console.error(`NotificationService: Lỗi khi lấy thông báo gần đây`, error);
+      return [];
+    }
   },
-
+  
   /**
    * Tạo thông báo mới
-   * @param {Object} notification - Dữ liệu thông báo
+   * @param {string} message Nội dung thông báo
+   * @param {string} type Loại thông báo
+   * @param {number} taskId ID của công việc liên quan
+   * @returns {Promise<Object>} Thông báo đã tạo
    */
-  createNotification: async (notification) => {
-    const response = await api.post('/notifications', notification);
-    return response.data;
+  createNotification: async (message, type, taskId) => {
+    try {
+      console.log(`NotificationService: Đang tạo thông báo mới cho task ID ${taskId}`);
+      const response = await api.post('/notifications', {
+        message,
+        type,
+        taskId
+      });
+      
+      if (!response || !response.data) {
+        console.error('NotificationService: Không có dữ liệu từ API POST /notifications');
+        throw new Error('Không nhận được phản hồi từ server');
+      }
+      
+      return response.data.data;
+    } catch (error) {
+      console.error('NotificationService: Lỗi khi tạo thông báo mới', error);
+      throw error;
+    }
   },
-
+  
   /**
-   * Kiểm tra và tạo thông báo deadline
+   * Đánh dấu thông báo đã đọc
+   * @param {number} id ID của thông báo
+   * @returns {Promise<Object>} Thông báo đã cập nhật
+   */
+  markNotificationAsRead: async (id) => {
+    try {
+      console.log(`NotificationService: Đang đánh dấu đã đọc thông báo ID ${id}`);
+      const response = await api.patch(`/notifications/${id}/read`);
+      
+      if (!response || !response.data) {
+        console.error(`NotificationService: Không có dữ liệu từ API PATCH /notifications/${id}/read`);
+        throw new Error('Không nhận được phản hồi từ server');
+      }
+      
+      return response.data.data;
+    } catch (error) {
+      console.error(`NotificationService: Lỗi khi đánh dấu đã đọc thông báo ID ${id}`, error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Xóa thông báo
+   * @param {number} id ID của thông báo
+   * @returns {Promise<boolean>} Kết quả xóa
+   */
+  deleteNotification: async (id) => {
+    try {
+      console.log(`NotificationService: Đang xóa thông báo ID ${id}`);
+      const response = await api.delete(`/notifications/${id}`);
+      
+      if (response && response.data && response.data.success) {
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error(`NotificationService: Lỗi khi xóa thông báo ID ${id}`, error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Đánh dấu tất cả thông báo đã đọc
+   * @returns {Promise<number>} Số thông báo đã cập nhật
+   */
+  markAllAsRead: async () => {
+    try {
+      console.log('NotificationService: Đang đánh dấu tất cả thông báo đã đọc');
+      const response = await api.patch('/notifications/read-all');
+      
+      if (!response || !response.data) {
+        console.error('NotificationService: Không có dữ liệu từ API PATCH /notifications/read-all');
+        return 0;
+      }
+      
+      return response.data.data || 0;
+    } catch (error) {
+      console.error('NotificationService: Lỗi khi đánh dấu tất cả thông báo đã đọc', error);
+      return 0;
+    }
+  },
+  
+  /**
+   * Yêu cầu hệ thống kiểm tra và tạo thông báo cho công việc đến hạn
+   * @returns {Promise<boolean>} Kết quả thành công hay không
    */
   checkAndCreateDeadlineNotifications: async () => {
-    const response = await api.post('/notifications/check-deadlines');
-    return response.data;
+    try {
+      console.log('NotificationService: Đang yêu cầu kiểm tra deadline');
+      await api.post('/notifications/check-deadlines');
+      return true;
+    } catch (error) {
+      console.error('NotificationService: Lỗi khi yêu cầu kiểm tra deadline', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Yêu cầu hệ thống kiểm tra và tạo thông báo hàng giờ cho công việc đến hạn
+   * @returns {Promise<boolean>} Kết quả thành công hay không
+   */
+  checkHourlyDeadlineNotifications: async () => {
+    try {
+      console.log('NotificationService: Đang yêu cầu kiểm tra deadline hàng giờ');
+      await api.post('/notifications/check-hourly-deadlines');
+      return true;
+    } catch (error) {
+      console.error('NotificationService: Lỗi khi yêu cầu kiểm tra deadline hàng giờ', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Xóa các thông báo hết hạn
+   * @returns {Promise<number>} Số thông báo đã xóa
+   */
+  deleteExpiredNotifications: async () => {
+    try {
+      console.log('NotificationService: Đang yêu cầu xóa thông báo hết hạn');
+      const response = await api.delete('/notifications/expired');
+      
+      if (!response || !response.data) {
+        console.error('NotificationService: Không có dữ liệu từ API DELETE /notifications/expired');
+        return 0;
+      }
+      
+      return response.data.data || 0;
+    } catch (error) {
+      console.error('NotificationService: Lỗi khi xóa thông báo hết hạn', error);
+      return 0;
+    }
+  },
+  
+  /**
+   * Lấy số lượng thông báo chưa đọc
+   * @returns {Promise<number>} Số lượng thông báo chưa đọc
+   */
+  getUnreadCount: async () => {
+    try {
+      console.log('NotificationService: Đang lấy số lượng thông báo chưa đọc');
+      const response = await api.get('/notifications/unread');
+      
+      if (!response || !response.data) {
+        console.error('NotificationService: Không có dữ liệu từ API /notifications/unread');
+        return 0;
+      }
+      
+      return response.data.data?.length || 0;
+    } catch (error) {
+      console.error('NotificationService: Lỗi khi lấy số lượng thông báo chưa đọc', error);
+      return 0;
+    }
   },
   
   /**
    * Lấy màu dựa vào mức độ ưu tiên của thông báo
    * @param {string} priority - Mức độ ưu tiên
+   * @returns {string} Mã màu
    */
   getPriorityColor: (priority) => {
     switch (priority?.toUpperCase()) {
@@ -241,6 +295,7 @@ const notificationService = {
   /**
    * Lấy icon dựa vào loại thông báo
    * @param {string} type - Loại thông báo
+   * @returns {string} Tên icon
    */
   getNotificationIcon: (type) => {
     switch (type?.toUpperCase()) {
@@ -262,6 +317,7 @@ const notificationService = {
   /**
    * Định dạng thời gian hiển thị
    * @param {Date} date - Thời gian
+   * @returns {string} Chuỗi thời gian đã định dạng
    */
   formatNotificationTime: (date) => {
     if (!date) return '';
