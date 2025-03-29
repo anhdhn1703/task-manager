@@ -46,6 +46,7 @@ const TaskList = () => {
   const [projects, setProjects] = useState([]);
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
@@ -81,30 +82,67 @@ const TaskList = () => {
   }, [location]);
 
   // Fetch data
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Lấy danh sách công việc, dự án, và tags từ API
+      console.log('Đang lấy dữ liệu tasks, projects, tags...');
+      const [tasksResponse, projectsResponse, tagsResponse] = await Promise.all([
+        taskService.getAllTasks(),
+        projectService.getAllProjects(),
+        tagService.getAllTags()
+      ]);
+      
+      console.log('Dữ liệu tasks từ API:', tasksResponse);
+      console.log('Dữ liệu projects từ API:', projectsResponse);
+      console.log('Dữ liệu tags từ API:', tagsResponse);
+      
+      const allTasks = Array.isArray(tasksResponse) ? tasksResponse : [];
+      const allProjects = Array.isArray(projectsResponse) ? projectsResponse : [];
+      const allTags = Array.isArray(tagsResponse) ? tagsResponse : [];
+      
+      // Áp dụng bộ lọc và tìm kiếm
+      const filteredTasks = allTasks.filter(task => {
+        const matchSearchTerm = !filters.search || 
+                               task.title.toLowerCase().includes(filters.search.toLowerCase()) ||
+                               (task.description && task.description.toLowerCase().includes(filters.search.toLowerCase()));
+        
+        const matchPriority = !filters.priority || filters.priority.length === 0 || 
+                             filters.priority.includes(task.priority);
+        
+        const matchStatus = !filters.status || filters.status.length === 0 || 
+                           filters.status.includes(task.status);
+        
+        const matchProject = !filters.projectId || 
+                            (task.projectId && task.projectId === filters.projectId);
+        
+        // Kiểm tra tag (nếu task có tags và có tag được chọn)
+        const matchTag = !filters.tagIds || filters.tagIds.length === 0 || 
+                        (task.tags && task.tags.some(tagId => 
+                          filters.tagIds.includes(typeof tagId === 'object' ? tagId.id : tagId)
+                        ));
+        
+        return matchSearchTerm && matchPriority && matchStatus && matchProject && matchTag;
+      });
+      
+      setTasks(filteredTasks);
+      setProjects(allProjects);
+      setTags(allTags);
+      
+      console.log(`Đã lọc: ${filteredTasks.length}/${allTasks.length} tasks`);
+    } catch (err) {
+      console.error('Lỗi khi lấy dữ liệu:', err);
+      setError('Không thể tải dữ liệu. Lỗi: ' + (err?.message || 'Không xác định'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Thêm useEffect để gọi fetchData khi component mount
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        const [tasksData, projectsData, tagsData] = await Promise.all([
-          taskService.getAllTasks(),
-          projectService.getAllProjects(),
-          tagService.getAllTags()
-        ]);
-        
-        setTasks(tasksData);
-        setProjects(projectsData);
-        setTags(tagsData);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        message.error("Không thể tải dữ liệu");
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     fetchData();
-  }, []);
+  }, [filters]); // Gọi lại khi filters thay đổi
 
   // Handlers
   const showAddModal = () => {
@@ -203,10 +241,19 @@ const TaskList = () => {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const tasksData = await taskService.getAllTasks();
-      setTasks(tasksData);
-    } catch (error) {
-      console.error("Error fetching tasks:", error);
+      setError(null);
+      const tasksResponse = await taskService.getAllTasks();
+      console.log('Dữ liệu tasks từ API (fetchTasks):', tasksResponse);
+      
+      if (Array.isArray(tasksResponse)) {
+        setTasks(tasksResponse);
+      } else {
+        console.error("Dữ liệu tasks không phải là mảng:", tasksResponse);
+        setTasks([]);
+      }
+    } catch (err) {
+      console.error("Lỗi khi lấy danh sách công việc:", err);
+      setError('Không thể tải danh sách công việc. Lỗi: ' + (err?.message || 'Không xác định'));
       message.error("Không thể tải danh sách công việc");
     } finally {
       setLoading(false);

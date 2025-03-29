@@ -445,7 +445,15 @@ public class TaskServiceImpl implements TaskService {
             dto.setDueStatus(task.getDueStatus().name());
         }
         
-        dto.setProgress(task.getProgress());
+        // Đảm bảo trường progress luôn được thiết lập
+        if (task.getProgress() != null) {
+            dto.setProgress(task.getProgress());
+        } else {
+            // Mặc định progress là 0 nếu null
+            dto.setProgress(0);
+            // Log cảnh báo
+            LogUtil.warn(log, "Task ID {} có giá trị progress null, đã thiết lập mặc định là 0", task.getId());
+        }
         
         if (task.getProject() != null) {
             dto.setProjectId(task.getProject().getId());

@@ -62,17 +62,6 @@ const authService = {
       const response = await api.post('/auth/login', { username, password });
       console.log('authService: Phản hồi từ server:', response);
       
-      // Log cấu trúc phản hồi chi tiết
-      console.log('authService: Cấu trúc phản hồi login:', {
-        status: response?.status,
-        statusText: response?.statusText,
-        hasData: !!response?.data,
-        dataKeys: response?.data ? Object.keys(response.data) : [],
-        dataObject: response?.data,
-        hasNestedData: !!(response?.data?.data),
-        nestedDataKeys: response?.data?.data ? Object.keys(response.data.data) : []
-      });
-      
       if (!response || !response.data) {
         console.error('authService: Phản hồi không hợp lệ');
         throw new Error('Không nhận được phản hồi hợp lệ từ máy chủ');
@@ -155,6 +144,7 @@ const authService = {
    * @param {string} username - Tên đăng nhập
    * @param {string} email - Email
    * @param {string} password - Mật khẩu
+   * @param {string} fullName - Họ tên đầy đủ
    * @returns {Promise<Object>} - Kết quả đăng ký
    */
   register: async (username, email, password, fullName = '') => {
@@ -175,43 +165,53 @@ const authService = {
       }
       
       // Lấy dữ liệu từ cấu trúc phản hồi mới
-      const responseData = response.data.data;
+      const responseData = response.data;
+      
+      // Kiểm tra success flag
+      if (responseData.success === false) {
+        console.error('authService: Đăng ký thất bại', responseData.message);
+        throw new Error(responseData.message || 'Đăng ký thất bại');
+      }
+      
+      // Lấy dữ liệu từ data field
+      const userData = responseData.data;
       
       // Kiểm tra xem data có tồn tại không
-      if (!responseData) {
-        console.error('authService: Không tìm thấy dữ liệu trong phản hồi đăng ký', response.data);
+      if (!userData) {
+        console.error('authService: Không tìm thấy dữ liệu trong phản hồi đăng ký', responseData);
         throw new Error('Không có dữ liệu trong phản hồi từ máy chủ');
       }
       
       // Kiểm tra xem data có chứa token không
-      if (!responseData.token) {
-        console.error('authService: Không tìm thấy token trong phản hồi đăng ký', responseData);
+      if (!userData.token) {
+        console.error('authService: Không tìm thấy token trong phản hồi đăng ký', userData);
         throw new Error('Không có token xác thực trong phản hồi từ máy chủ');
       }
       
       // Lưu token và refresh token vào localStorage
-      localStorage.setItem(AUTH_TOKEN_KEY, responseData.token);
-      if (responseData.refreshToken) {
-        localStorage.setItem(REFRESH_TOKEN_KEY, responseData.refreshToken);
+      localStorage.setItem(AUTH_TOKEN_KEY, userData.token);
+      if (userData.refreshToken) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, userData.refreshToken);
       }
       
       // Xây dựng đối tượng user từ dữ liệu phản hồi
-      const userData = {
-        id: responseData.id,
-        username: responseData.username,
-        email: responseData.email,
-        fullName: responseData.fullName || fullName,
-        roles: responseData.roles || []
+      const user = {
+        id: userData.id,
+        username: userData.username,
+        email: userData.email,
+        fullName: userData.fullName,
+        roles: userData.roles || []
       };
       
       // Lưu thông tin người dùng vào localStorage
-      localStorage.setItem(USER_INFO_KEY, JSON.stringify(userData));
+      localStorage.setItem(USER_INFO_KEY, JSON.stringify(user));
       
-      return { 
-        success: true, 
-        token: responseData.token,
-        refreshToken: responseData.refreshToken,
-        user: userData
+      console.log('authService: Đăng ký thành công, đã lưu token và thông tin người dùng');
+      
+      return {
+        token: userData.token,
+        refreshToken: userData.refreshToken,
+        user: user
       };
     } catch (error) {
       console.error('authService - Lỗi đăng ký:', error);
@@ -221,13 +221,10 @@ const authService = {
         const { status, data } = error.response;
         
         if (status === 400) {
-          if (data.validationErrors) {
-            // Có lỗi validation
-            const errors = Object.values(data.validationErrors).join(', ');
-            throw new Error(`Lỗi xác thực dữ liệu: ${errors}`);
-          } else if (data.message) {
-            throw new Error(data.message);
-          }
+          const errorMessage = data.message || 'Dữ liệu đăng ký không hợp lệ';
+          throw new Error(errorMessage);
+        } else if (status === 409) {
+          throw new Error('Tên đăng nhập hoặc email đã tồn tại');
         } else if (data && data.message) {
           throw new Error(data.message);
         }
@@ -285,42 +282,47 @@ const authService = {
   },
 
   /**
-   * Xác minh token với server
-   * @returns {Promise<boolean>} - Token có hợp lệ không
+   * Xác thực token
+   * @returns {Promise<boolean>}
    */
   validateToken: async () => {
     try {
-      const token = authService.getToken();
+      const token = localStorage.getItem(AUTH_TOKEN_KEY);
       
       if (!token) {
-        console.log('authService: Không có token để xác minh');
+        console.log('authService: Không tìm thấy token trong localStorage');
         return false;
       }
       
-      // Kiểm tra xem token đã hết hạn chưa
-      if (authService.isTokenExpired()) {
-        console.log('authService: Token đã hết hạn');
+      // Kiểm tra token có đúng định dạng JWT không
+      try {
+        jwtDecode(token);
+      } catch (e) {
+        console.error('authService: Token không đúng định dạng JWT', e);
         return false;
       }
       
-      // Gọi API để xác minh token còn hợp lệ không
+      console.log('authService: Đang xác thực token');
+      
       const response = await api.get('/auth/validate-token');
-      console.log('authService: Phản hồi xác minh token:', response);
       
-      if (response.success && response.data && response.data.token) {
-        // Cập nhật token mới nếu có
-        localStorage.setItem(AUTH_TOKEN_KEY, response.data.token);
-        
-        if (response.data.refreshToken) {
-          localStorage.setItem(REFRESH_TOKEN_KEY, response.data.refreshToken);
-        }
-        
-        return true;
+      if (!response || !response.data) {
+        console.error('authService: Phản hồi xác thực token không hợp lệ');
+        return false;
       }
       
-      return false;
+      const responseData = response.data;
+      
+      // Kiểm tra success flag
+      if (responseData.success === false) {
+        console.error('authService: Xác thực token thất bại', responseData.message);
+        return false;
+      }
+      
+      console.log('authService: Xác thực token thành công');
+      return true;
     } catch (error) {
-      console.error('authService - Lỗi xác minh token:', error);
+      console.error('authService: Lỗi khi xác thực token', error);
       return false;
     }
   },

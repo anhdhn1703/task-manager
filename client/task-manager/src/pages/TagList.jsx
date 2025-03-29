@@ -37,10 +37,11 @@ const TagList = () => {
     try {
       setLoading(true);
       const data = await tagService.getAllTags();
+      console.log('Tags data from API:', data);
       setTags(data);
     } catch (error) {
       console.error("Error fetching tags:", error);
-      message.error("Không thể tải danh sách tag");
+      message.error("Không thể tải danh sách tag. Lỗi: " + (error.message || "Không xác định"));
     } finally {
       setLoading(false);
     }

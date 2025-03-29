@@ -51,6 +51,17 @@
 * Sửa lỗi đăng nhập không nhận token
 * Cải thiện thông báo lỗi người dùng
 
+### Phiên bản 1.2.1 (25/03/2025)
+**Sửa lỗi tiến độ công việc**
+
+* Sửa lỗi quan trọng: tiến độ công việc luôn hiển thị 0% thay vì giá trị thực từ cơ sở dữ liệu
+* Cải thiện xử lý giá trị null trong chuyển đổi dữ liệu:
+  - Thêm kiểm tra null cho thuộc tính progress trong TaskServiceImpl
+  - Thiết lập giá trị mặc định 0 khi progress là null
+  - Thêm ghi log cảnh báo khi phát hiện giá trị progress null
+* Đảm bảo tính nhất quán trong việc hiển thị tiến độ công việc
+* Tăng cường tính ổn định khi hiển thị task trên giao diện người dùng
+
 ## Công nghệ sử dụng
 
 ### Backend

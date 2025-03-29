@@ -43,30 +43,37 @@ const NotificationList = () => {
         notificationsData = await notificationService.getRecentNotifications(7);
       }
       
+      console.log(`${activeTab} notifications data from API:`, notificationsData);
+      
       // Sắp xếp thông báo theo mức độ ưu tiên và thời gian
-      notificationsData.sort((a, b) => {
-        // Ưu tiên các thông báo chưa đọc
-        if (a.read !== b.read) {
-          return a.read ? 1 : -1;
-        }
-        
-        // Sau đó sắp xếp theo mức độ ưu tiên
-        const priorityOrder = { 'URGENT': 0, 'HIGH': 1, 'NORMAL': 2, 'LOW': 3 };
-        const priorityA = priorityOrder[a.priority] || 2;
-        const priorityB = priorityOrder[b.priority] || 2;
-        
-        if (priorityA !== priorityB) {
-          return priorityA - priorityB;
-        }
-        
-        // Cuối cùng sắp xếp theo thời gian (mới nhất lên đầu)
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      });
+      if (Array.isArray(notificationsData)) {
+        notificationsData.sort((a, b) => {
+          // Ưu tiên các thông báo chưa đọc
+          if (a.read !== b.read) {
+            return a.read ? 1 : -1;
+          }
+          
+          // Sau đó sắp xếp theo mức độ ưu tiên
+          const priorityOrder = { 'URGENT': 0, 'HIGH': 1, 'NORMAL': 2, 'LOW': 3 };
+          const priorityA = priorityOrder[a.priority] || 2;
+          const priorityB = priorityOrder[b.priority] || 2;
+          
+          if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+          }
+          
+          // Cuối cùng sắp xếp theo thời gian (mới nhất lên đầu)
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+      } else {
+        console.error("Dữ liệu thông báo không phải là mảng:", notificationsData);
+        notificationsData = [];
+      }
       
       setNotifications(notificationsData);
     } catch (err) {
       console.error('Lỗi khi tải thông báo:', err);
-      setError('Không thể tải thông báo. Vui lòng thử lại sau.');
+      setError('Không thể tải thông báo. Lỗi: ' + (err.message || 'Không xác định'));
     } finally {
       setLoading(false);
     }

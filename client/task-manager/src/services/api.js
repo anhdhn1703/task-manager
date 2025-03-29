@@ -81,30 +81,39 @@ api.interceptors.response.use(
     // Log thông tin phản hồi cho debug
     console.log(`api.js: Phản hồi thành công từ ${response.config.url}`, response);
     
-    // Trích xuất data theo cấu trúc ResponseDTO
-    const responseData = response.data;
-    
     // Kiểm tra cấu trúc phản hồi
-    if (responseData && typeof responseData === 'object') {
-      // Kiểm tra thành công/thất bại từ success flag
-      if (responseData.success === false) {
-        console.warn('api.js: Phản hồi có trạng thái success = false', responseData);
-        
-        // Nếu có thông báo lỗi, hiển thị cho người dùng
-        if (responseData.message) {
-          message.error(responseData.message);
+    if (response && response.data) {
+      // Nếu phản hồi có cấu trúc success, message, data thì đó là ResponseDTO
+      if (typeof response.data === 'object' && 'success' in response.data) {
+        // Kiểm tra thành công/thất bại từ success flag
+        if (response.data.success === false) {
+          console.warn('api.js: Phản hồi có trạng thái success = false', response.data);
+          
+          // Nếu có thông báo lỗi, hiển thị cho người dùng
+          if (response.data.message) {
+            message.error(response.data.message);
+          }
+          
+          // Tạo lỗi từ phản hồi
+          const error = new Error(response.data.message || 'Lỗi không xác định');
+          error.response = response;
+          error.errorCode = response.data.errorCode;
+          
+          return Promise.reject(error);
         }
         
-        // Tạo lỗi từ phản hồi
-        const error = new Error(responseData.message || 'Lỗi không xác định');
-        error.response = response;
-        error.errorCode = responseData.errorCode;
-        
-        return Promise.reject(error);
+        // Nếu là ResponseDTO thành công, trả về response để service có thể truy cập response.data.data
+        return response;
+      } else {
+        // Nếu phản hồi không có cấu trúc ResponseDTO, gắn dữ liệu vào cấu trúc giống ResponseDTO
+        // Để đảm bảo các service có thể truy cập nhất quán qua response.data.data
+        response.data = {
+          success: true,
+          message: 'OK',
+          data: response.data
+        };
       }
       
-      // Trả về toàn bộ response thay vì chỉ response.data
-      // Điều này sẽ đảm bảo rằng các component có thể truy cập trực tiếp đến dữ liệu từ response.data
       return response;
     }
     
