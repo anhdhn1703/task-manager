@@ -4,6 +4,7 @@ import com.net.ken.server.dto.ResponseDTO;
 import com.net.ken.server.dto.auth.ChangePasswordRequest;
 import com.net.ken.server.dto.auth.JwtResponse;
 import com.net.ken.server.dto.auth.LoginRequest;
+import com.net.ken.server.dto.auth.LoginResponse;
 import com.net.ken.server.dto.auth.RegisterRequest;
 import com.net.ken.server.model.User;
 
@@ -18,7 +19,7 @@ public interface AuthService {
      * @param loginRequest đối tượng chứa thông tin đăng nhập
      * @return đối tượng phản hồi JWT với token và thông tin người dùng
      */
-    ResponseDTO<JwtResponse> authenticateUser(LoginRequest loginRequest);
+    ResponseDTO<LoginResponse> authenticateUser(LoginRequest loginRequest);
     
     /**
      * Đăng ký người dùng mới và tạo JWT token.
@@ -36,6 +37,25 @@ public interface AuthService {
      * @return phản hồi thành công
      */
     ResponseDTO<Void> changePassword(ChangePasswordRequest request, Long userId);
+    
+    /**
+     * Thay đổi mật khẩu đã quá hạn cho người dùng.
+     * Khác với changePassword thông thường, phương thức này không yêu cầu mật khẩu cũ
+     * nhưng chỉ hoạt động khi mật khẩu đã thực sự quá hạn.
+     * 
+     * @param username tên người dùng
+     * @param newPassword mật khẩu mới
+     * @return phản hồi JWT với token mới và thông tin người dùng
+     */
+    ResponseDTO<JwtResponse> changeExpiredPassword(String username, String newPassword);
+    
+    /**
+     * Mở khóa tài khoản người dùng.
+     * 
+     * @param username tên người dùng cần mở khóa
+     * @return phản hồi thành công
+     */
+    ResponseDTO<Void> unlockUserAccount(String username);
     
     /**
      * Xác thực token JWT và trả về thông tin người dùng.

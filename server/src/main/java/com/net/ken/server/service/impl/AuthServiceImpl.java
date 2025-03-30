@@ -4,6 +4,7 @@ import com.net.ken.server.dto.ResponseDTO;
 import com.net.ken.server.dto.auth.ChangePasswordRequest;
 import com.net.ken.server.dto.auth.JwtResponse;
 import com.net.ken.server.dto.auth.LoginRequest;
+import com.net.ken.server.dto.auth.LoginResponse;
 import com.net.ken.server.dto.auth.RegisterRequest;
 import com.net.ken.server.exception.TaskManagerException;
 import com.net.ken.server.model.User;
@@ -32,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static com.net.ken.server.config.CacheConfig.USER_CACHE;
 
@@ -46,53 +48,156 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public ResponseDTO<JwtResponse> authenticateUser(LoginRequest loginRequest) {
+    @Transactional
+    public ResponseDTO<LoginResponse> authenticateUser(LoginRequest loginRequest) {
         try {
             log.info("Đang xác thực người dùng: {}", loginRequest.getUsername());
             
-            // Xác thực thông tin đăng nhập
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            loginRequest.getUsername(),
-                            loginRequest.getPassword()
+            // Kiểm tra xem username có tồn tại không
+            Optional<User> userOpt = userRepository.findByUsername(loginRequest.getUsername());
+            if (userOpt.isEmpty()) {
+                log.warn("Đăng nhập thất bại - Không tìm thấy người dùng: {}", loginRequest.getUsername());
+                
+                // Trả về thông báo lỗi chung, không tiết lộ rằng username không tồn tại
+                return ResponseDTO.error(
+                    "Tên đăng nhập hoặc mật khẩu không chính xác",
+                    "INVALID_CREDENTIALS",
+                    LoginResponse.error("Tên đăng nhập hoặc mật khẩu không chính xác", "INVALID_CREDENTIALS")
+                );
+            }
+            
+            User user = userOpt.get();
+            
+            // Kiểm tra xem tài khoản có bị khóa không
+            if (!user.isAccountNonLocked()) {
+                log.warn("Đăng nhập thất bại - Tài khoản bị khóa: {}", loginRequest.getUsername());
+                
+                return ResponseDTO.error(
+                    "Tài khoản của bạn đã bị khóa do nhập sai mật khẩu nhiều lần. Vui lòng liên hệ quản trị viên để được hỗ trợ.",
+                    "ACCOUNT_LOCKED",
+                    LoginResponse.error(
+                        "Tài khoản của bạn đã bị khóa do nhập sai mật khẩu nhiều lần. Vui lòng liên hệ quản trị viên để được hỗ trợ.",
+                        "ACCOUNT_LOCKED",
+                        6
                     )
-            );
+                );
+            }
             
-            // Đặt thông tin xác thực vào SecurityContext
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            // Thử xác thực
+            try {
+                // Xác thực thông tin đăng nhập
+                Authentication authentication = authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(
+                                loginRequest.getUsername(),
+                                loginRequest.getPassword()
+                        )
+                );
+                
+                // Đặt thông tin xác thực vào SecurityContext
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                
+                // Lấy thông tin người dùng đã xác thực
+                user = (User) authentication.getPrincipal();
+                
+                // Reset số lần đăng nhập sai khi đăng nhập thành công
+                user.resetFailedLoginAttempts();
+                userRepository.resetFailedLoginAttempts(user.getUsername());
+                
+                // Tạo token
+                String jwt = jwtTokenService.generateToken(user);
+                String refreshToken = jwtTokenService.generateRefreshToken(user);
+                
+                // Cập nhật thời gian đăng nhập cuối
+                updateLastLogin(user.getUsername());
+                
+                // Kiểm tra xem mật khẩu có quá hạn không
+                boolean isPasswordExpired = user.isPasswordExpired();
+                long daysUntilExpiry = user.getDaysUntilPasswordExpiry();
+                
+                if (isPasswordExpired) {
+                    log.info("Mật khẩu của người dùng {} đã quá hạn, yêu cầu thay đổi mật khẩu", user.getUsername());
+                } else if (daysUntilExpiry <= 15) {
+                    log.info("Mật khẩu của người dùng {} sẽ hết hạn trong {} ngày", user.getUsername(), daysUntilExpiry);
+                }
+                
+                // Tạo phản hồi
+                List<String> roles = new ArrayList<>(user.getRoles());
+                
+                JwtResponse jwtResponse = JwtResponse.builder()
+                        .token(jwt)
+                        .refreshToken(refreshToken)
+                        .id(user.getId())
+                        .username(user.getUsername())
+                        .email(user.getEmail())
+                        .fullName(user.getFullName())
+                        .roles(roles)
+                        .passwordExpired(isPasswordExpired)
+                        .daysUntilPasswordExpiry(daysUntilExpiry)
+                        .build();
+                
+                log.info("Người dùng {} đã đăng nhập thành công", user.getUsername());
+                
+                String message = "Đăng nhập thành công";
+                if (isPasswordExpired) {
+                    message = "Đăng nhập thành công. Mật khẩu của bạn đã quá hạn, vui lòng thay đổi mật khẩu ngay.";
+                } else if (daysUntilExpiry <= 15) {
+                    message = String.format("Đăng nhập thành công. Mật khẩu của bạn sẽ hết hạn trong %d ngày.", daysUntilExpiry);
+                }
+                
+                // Tạo LoginResponse từ JwtResponse
+                LoginResponse loginResponse = LoginResponse.success(jwtResponse, message);
+                
+                return ResponseDTO.success(message, loginResponse);
+                
+            } catch (BadCredentialsException e) {
+                // Tăng số lần đăng nhập sai và kiểm tra xem có cần khóa tài khoản không
+                userRepository.incrementFailedLoginAttempts(user.getUsername());
+                
+                // Lấy lại thông tin user sau khi cập nhật số lần đăng nhập sai
+                user = userRepository.findByUsername(user.getUsername()).orElse(user);
+                
+                // Kiểm tra xem có cần khóa tài khoản không
+                boolean isLocked = user.getFailedLoginAttempts() >= 6;
+                if (isLocked) {
+                    // Khóa tài khoản nếu đạt giới hạn đăng nhập sai
+                    LocalDateTime lockDate = LocalDateTime.of(9999, 12, 31, 0, 0, 0);
+                    userRepository.lockUserAccount(user.getUsername(), lockDate);
+                    
+                    log.warn("Tài khoản {} đã bị khóa do nhập sai mật khẩu quá nhiều lần", user.getUsername());
+                    
+                    return ResponseDTO.error(
+                        "Tài khoản của bạn đã bị khóa do nhập sai mật khẩu nhiều lần. Vui lòng liên hệ quản trị viên để được hỗ trợ.",
+                        "ACCOUNT_LOCKED",
+                        LoginResponse.error(
+                            "Tài khoản của bạn đã bị khóa do nhập sai mật khẩu nhiều lần. Vui lòng liên hệ quản trị viên để được hỗ trợ.",
+                            "ACCOUNT_LOCKED",
+                            6
+                        )
+                    );
+                }
+                
+                log.warn("Đăng nhập thất bại - Mật khẩu không chính xác cho người dùng: {} (Lần thử thứ: {})", 
+                        user.getUsername(), user.getFailedLoginAttempts());
+                        
+                // Tạo phản hồi lỗi với thông tin về số lần đăng nhập sai
+                return ResponseDTO.error(
+                    "Tên đăng nhập hoặc mật khẩu không chính xác",
+                    "INVALID_CREDENTIALS",
+                    LoginResponse.error(
+                        "Tên đăng nhập hoặc mật khẩu không chính xác",
+                        "INVALID_CREDENTIALS",
+                        user.getFailedLoginAttempts()
+                    )
+                );
+            }
             
-            // Lấy thông tin người dùng đã xác thực
-            User user = (User) authentication.getPrincipal();
-            
-            // Tạo token
-            String jwt = jwtTokenService.generateJwtToken(user);
-            String refreshToken = jwtTokenService.generateRefreshToken(user);
-            
-            // Cập nhật thời gian đăng nhập cuối
-            updateLastLogin(user.getUsername());
-            
-            // Tạo phản hồi
-            List<String> roles = new ArrayList<>(user.getRoles());
-            
-            JwtResponse jwtResponse = JwtResponse.builder()
-                    .token(jwt)
-                    .refreshToken(refreshToken)
-                    .id(user.getId())
-                    .username(user.getUsername())
-                    .email(user.getEmail())
-                    .fullName(user.getFullName())
-                    .roles(roles)
-                    .build();
-            
-            log.info("Người dùng {} đã đăng nhập thành công", user.getUsername());
-            
-            return ResponseDTO.success("Đăng nhập thành công", jwtResponse);
-        } catch (BadCredentialsException e) {
-            log.error("Lỗi đăng nhập - thông tin đăng nhập không chính xác: {}", e.getMessage());
-            throw e;
         } catch (Exception e) {
             log.error("Lỗi trong quá trình xác thực người dùng", e);
-            throw new TaskManagerException.BusinessLogicException("Lỗi trong quá trình xử lý đăng nhập", "AUTH_ERROR");
+            return ResponseDTO.error(
+                "Lỗi trong quá trình xử lý đăng nhập",
+                "AUTH_ERROR",
+                LoginResponse.error("Lỗi trong quá trình xử lý đăng nhập", "AUTH_ERROR")
+            );
         }
     }
 
@@ -130,7 +235,7 @@ public class AuthServiceImpl implements AuthService {
             log.info("Người dùng mới đã được tạo với ID: {}", user.getId());
             
             // Tạo token và phản hồi giống như đăng nhập
-            String jwt = jwtTokenService.generateJwtToken(user);
+            String jwt = jwtTokenService.generateToken(user);
             String refreshToken = jwtTokenService.generateRefreshToken(user);
             
             // Tạo phản hồi
@@ -175,12 +280,16 @@ public class AuthServiceImpl implements AuthService {
             // Cập nhật mật khẩu mới
             user.setPassword(passwordEncoder.encode(request.getNewPassword()));
             user.setCredentialsNonExpired(true);
-            user.setLastPasswordChangeDate(LocalDateTime.now());
+            
+            // Đặt thời gian thay đổi mật khẩu để vô hiệu hóa các token cũ
+            LocalDateTime now = LocalDateTime.now();
+            user.setLastPasswordChangeDate(now);
             
             userRepository.save(user);
             log.info("Đã thay đổi mật khẩu thành công cho người dùng có ID: {}", userId);
+            log.info("Tất cả các phiên đăng nhập hiện có sẽ bị vô hiệu hóa do thay đổi mật khẩu (User ID: {})", userId);
             
-            return ResponseDTO.<Void>success("Thay đổi mật khẩu thành công", null);
+            return ResponseDTO.<Void>success("Thay đổi mật khẩu thành công. Vui lòng đăng nhập lại trên tất cả các thiết bị.", null);
         } catch (BadCredentialsException e) {
             // Đã ghi log ở trên rồi
             throw e;
@@ -197,10 +306,23 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public ResponseDTO<JwtResponse> validateToken(String token) {
         try {
+            if (token == null || token.isEmpty()) {
+                log.warn("Token không được cung cấp");
+                return ResponseDTO.error(
+                    "Token không được cung cấp",
+                    "INVALID_TOKEN",
+                    null
+                );
+            }
+            
             if (jwtTokenService.validateJwtToken(token)) {
                 String username = jwtTokenService.getUsernameFromJwtToken(token);
                 User user = userRepository.findByUsername(username)
                         .orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy người dùng: " + username));
+                
+                // Kiểm tra xem mật khẩu có quá hạn không
+                boolean isPasswordExpired = user.isPasswordExpired();
+                long daysUntilExpiry = user.getDaysUntilPasswordExpiry();
                 
                 List<String> roles = new ArrayList<>(user.getRoles());
                 
@@ -211,25 +333,54 @@ public class AuthServiceImpl implements AuthService {
                         .email(user.getEmail())
                         .fullName(user.getFullName())
                         .roles(roles)
+                        .passwordExpired(isPasswordExpired)
+                        .daysUntilPasswordExpiry(daysUntilExpiry)
                         .build();
                 
-                return ResponseDTO.success("Token hợp lệ", jwtResponse);
+                String message = "Token hợp lệ";
+                if (isPasswordExpired) {
+                    message = "Token hợp lệ. Mật khẩu của bạn đã quá hạn, vui lòng thay đổi mật khẩu ngay.";
+                }
+                
+                return ResponseDTO.success(message, jwtResponse);
             } else {
-                throw new TaskManagerException.ValidationException("Token không hợp lệ", "INVALID_TOKEN");
+                return ResponseDTO.error(
+                    "Token không hợp lệ hoặc đã hết hạn",
+                    "INVALID_TOKEN",
+                    null
+                );
             }
+        } catch (UsernameNotFoundException e) {
+            log.error("Không tìm thấy người dùng: {}", e.getMessage());
+            return ResponseDTO.error(
+                "Không tìm thấy người dùng",
+                "USER_NOT_FOUND",
+                null
+            );
         } catch (Exception e) {
             log.error("Lỗi trong quá trình xác thực token", e);
-            throw new TaskManagerException.ValidationException("Token không hợp lệ: " + e.getMessage(), "INVALID_TOKEN");
+            return ResponseDTO.error(
+                "Lỗi trong quá trình xác thực token",
+                "AUTHENTICATION_ERROR",
+                null
+            );
         }
     }
 
     @Override
-    @Cacheable(value = USER_CACHE, key = "#result.id", condition = "#result != null")
+    @Cacheable(value = USER_CACHE, key = "#result != null ? #result.id : 'system'", condition = "#result != null")
     public User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         
         if (authentication != null && authentication.getPrincipal() instanceof User) {
             return (User) authentication.getPrincipal();
+        }
+        
+        // Kiểm tra xem code hiện tại có đang chạy trong scheduled task không
+        String currentThreadName = Thread.currentThread().getName();
+        if (currentThreadName.contains("scheduling") || currentThreadName.contains("scheduled")) {
+            log.debug("Truy cập getCurrentUser trong tác vụ theo lịch, trả về null");
+            return null;
         }
         
         throw new TaskManagerException.ValidationException("Không tìm thấy người dùng hiện tại", "USER_NOT_FOUND");
@@ -254,18 +405,33 @@ public class AuthServiceImpl implements AuthService {
             
             if (refreshToken == null || refreshToken.isEmpty()) {
                 log.warn("Refresh token không được cung cấp");
-                throw new TaskManagerException.ValidationException("Refresh token không được cung cấp", "INVALID_TOKEN");
+                return ResponseDTO.error(
+                    "Refresh token không được cung cấp",
+                    "INVALID_TOKEN",
+                    null
+                );
             }
             
             // Kiểm tra refresh token có hợp lệ không
-            jwtTokenService.validateJwtToken(refreshToken);
+            if (!jwtTokenService.validateJwtToken(refreshToken)) {
+                log.warn("Refresh token không hợp lệ hoặc đã hết hạn");
+                return ResponseDTO.error(
+                    "Refresh token không hợp lệ hoặc đã hết hạn",
+                    "INVALID_TOKEN",
+                    null
+                );
+            }
             
             // Giải mã refresh token để lấy username
             String username = jwtTokenService.getUsernameFromJwtToken(refreshToken);
             
             if (username == null || username.isEmpty()) {
                 log.warn("Không thể lấy username từ refresh token");
-                throw new TaskManagerException.ValidationException("Refresh token không hợp lệ", "INVALID_TOKEN");
+                return ResponseDTO.error(
+                    "Refresh token không hợp lệ",
+                    "INVALID_TOKEN",
+                    null
+                );
             }
             
             // Lấy thông tin người dùng từ cơ sở dữ liệu
@@ -275,8 +441,12 @@ public class AuthServiceImpl implements AuthService {
                         return new UsernameNotFoundException("Không tìm thấy người dùng: " + username);
                     });
             
+            // Kiểm tra xem mật khẩu có quá hạn không
+            boolean isPasswordExpired = user.isPasswordExpired();
+            long daysUntilExpiry = user.getDaysUntilPasswordExpiry();
+            
             // Tạo JWT token mới
-            String newToken = jwtTokenService.generateJwtToken(user);
+            String newToken = jwtTokenService.generateToken(user);
             
             // Tạo refresh token mới
             String newRefreshToken = jwtTokenService.generateRefreshToken(user);
@@ -292,20 +462,128 @@ public class AuthServiceImpl implements AuthService {
                     .email(user.getEmail())
                     .fullName(user.getFullName())
                     .roles(roles)
+                    .passwordExpired(isPasswordExpired)
+                    .daysUntilPasswordExpiry(daysUntilExpiry)
                     .build();
             
             log.info("Token đã được làm mới thành công cho người dùng: {}", username);
             
-            return ResponseDTO.success("Token đã được làm mới thành công", jwtResponse);
-        } catch (ExpiredJwtException e) {
-            log.error("Refresh token đã hết hạn: {}", e.getMessage());
-            throw new TaskManagerException.ValidationException("Refresh token đã hết hạn", "EXPIRED_REFRESH_TOKEN");
-        } catch (SignatureException | MalformedJwtException | UnsupportedJwtException | IllegalArgumentException e) {
-            log.error("Refresh token không hợp lệ: {}", e.getMessage());
-            throw new TaskManagerException.ValidationException("Refresh token không hợp lệ: " + e.getMessage(), "INVALID_TOKEN");
+            String message = "Token đã được làm mới thành công";
+            if (isPasswordExpired) {
+                message = "Token đã được làm mới thành công. Mật khẩu của bạn đã quá hạn, vui lòng thay đổi mật khẩu ngay.";
+            } else if (daysUntilExpiry <= 15) {
+                message = String.format("Token đã được làm mới thành công. Mật khẩu của bạn sẽ hết hạn trong %d ngày.", daysUntilExpiry);
+            }
+            
+            return ResponseDTO.success(message, jwtResponse);
+        } catch (UsernameNotFoundException e) {
+            log.error("Không tìm thấy người dùng: {}", e.getMessage());
+            return ResponseDTO.error(
+                "Không tìm thấy người dùng",
+                "USER_NOT_FOUND",
+                null
+            );
         } catch (Exception e) {
             log.error("Lỗi trong quá trình làm mới token", e);
-            throw new TaskManagerException.BusinessLogicException("Lỗi trong quá trình xử lý làm mới token", "REFRESH_TOKEN_ERROR");
+            return ResponseDTO.error(
+                "Lỗi trong quá trình xử lý làm mới token",
+                "REFRESH_TOKEN_ERROR",
+                null
+            );
+        }
+    }
+
+    @Override
+    @Transactional
+    public ResponseDTO<JwtResponse> changeExpiredPassword(String username, String newPassword) {
+        try {
+            log.info("Đang xử lý yêu cầu thay đổi mật khẩu quá hạn cho người dùng: {}", username);
+            
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> {
+                        log.warn("Không tìm thấy người dùng với username: {}", username);
+                        return new UsernameNotFoundException("Không tìm thấy người dùng: " + username);
+                    });
+            
+            // Kiểm tra xem mật khẩu có thực sự quá hạn không
+            if (!user.isPasswordExpired()) {
+                log.warn("Thay đổi mật khẩu quá hạn thất bại - Mật khẩu chưa quá hạn (Username: {})", username);
+                throw new TaskManagerException.ValidationException(
+                        "Mật khẩu chưa quá hạn. Vui lòng sử dụng chức năng thay đổi mật khẩu thông thường.",
+                        "PASSWORD_NOT_EXPIRED"
+                );
+            }
+            
+            // Cập nhật mật khẩu mới
+            user.setPassword(passwordEncoder.encode(newPassword));
+            user.setCredentialsNonExpired(true);
+            
+            // Đặt thời gian thay đổi mật khẩu
+            LocalDateTime now = LocalDateTime.now();
+            user.setLastPasswordChangeDate(now);
+            
+            user = userRepository.save(user);
+            log.info("Đã thay đổi mật khẩu quá hạn thành công cho người dùng: {}", username);
+            
+            // Tạo token mới
+            String jwt = jwtTokenService.generateToken(user);
+            String refreshToken = jwtTokenService.generateRefreshToken(user);
+            
+            // Tạo phản hồi
+            List<String> roles = new ArrayList<>(user.getRoles());
+            
+            JwtResponse jwtResponse = JwtResponse.builder()
+                    .token(jwt)
+                    .refreshToken(refreshToken)
+                    .id(user.getId())
+                    .username(user.getUsername())
+                    .email(user.getEmail())
+                    .fullName(user.getFullName())
+                    .roles(roles)
+                    .passwordExpired(false) // Mật khẩu mới không quá hạn
+                    .daysUntilPasswordExpiry(90) // Đặt lại hạn sử dụng mật khẩu
+                    .build();
+            
+            return ResponseDTO.success("Thay đổi mật khẩu thành công. Vui lòng sử dụng thông tin đăng nhập mới.", jwtResponse);
+        } catch (UsernameNotFoundException | TaskManagerException.ValidationException e) {
+            // Đã ghi log ở trên rồi
+            throw e;
+        } catch (Exception e) {
+            log.error("Lỗi trong quá trình xử lý thay đổi mật khẩu quá hạn", e);
+            throw new TaskManagerException.BusinessLogicException("Lỗi trong quá trình xử lý thay đổi mật khẩu", "AUTH_ERROR");
+        }
+    }
+
+    @Override
+    @Transactional
+    public ResponseDTO<Void> unlockUserAccount(String username) {
+        try {
+            log.info("Đang mở khóa tài khoản cho người dùng: {}", username);
+            
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> {
+                        log.warn("Không tìm thấy người dùng với username: {}", username);
+                        return new UsernameNotFoundException("Không tìm thấy người dùng: " + username);
+                    });
+            
+            // Kiểm tra xem tài khoản có thực sự bị khóa không
+            if (user.isAccountNonLocked()) {
+                log.info("Tài khoản {} đã được mở khóa từ trước", username);
+                return ResponseDTO.<Void>success("Tài khoản đã được mở khóa", null);
+            }
+            
+            // Mở khóa tài khoản
+            userRepository.unlockUserAccount(username);
+            
+            log.info("Đã mở khóa tài khoản thành công cho người dùng: {}", username);
+            
+            return ResponseDTO.<Void>success("Mở khóa tài khoản thành công", null);
+        } catch (UsernameNotFoundException e) {
+            log.warn("Mở khóa tài khoản thất bại - Người dùng không tồn tại: {}", username);
+            throw e;
+        } catch (Exception e) {
+            log.error("Lỗi trong quá trình mở khóa tài khoản (Username: {})", username, e);
+            throw new TaskManagerException.BusinessLogicException("Lỗi trong quá trình xử lý mở khóa tài khoản", "AUTH_ERROR");
         }
     }
 } 

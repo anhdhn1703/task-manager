@@ -68,6 +68,11 @@ api.interceptors.request.use(
       config.headers['Authorization'] = `Bearer ${token}`;
     }
     
+    // Thêm cờ mặc định để hiển thị thông báo lỗi
+    if (config.showErrorMessage === undefined) {
+      config.showErrorMessage = true;
+    }
+    
     return config;
   },
   (error) => {
@@ -89,8 +94,8 @@ api.interceptors.response.use(
         if (response.data.success === false) {
           console.warn('api.js: Phản hồi có trạng thái success = false', response.data);
           
-          // Nếu có thông báo lỗi, hiển thị cho người dùng
-          if (response.data.message) {
+          // Nếu có thông báo lỗi và cờ hiển thị thông báo được bật, hiển thị cho người dùng
+          if (response.data.message && response.config.showErrorMessage) {
             message.error(response.data.message);
           }
           
@@ -124,11 +129,51 @@ api.interceptors.response.use(
     console.error('api.js: Lỗi phản hồi từ server:', error);
     
     const originalRequest = error.config;
+    const showErrorMessage = originalRequest.showErrorMessage !== false;
     
     // Xử lý các loại lỗi khác nhau
     if (error.response) {
       // Phản hồi từ máy chủ với mã lỗi
       const { status } = error.response;
+      
+      // Xử lý lỗi rate limit - status code 429 (TOO_MANY_REQUESTS)
+      if (status === 429) {
+        try {
+          // Đảm bảo đọc dữ liệu response với UTF-8
+          const responseData = error.response.data;
+          let errorMessage = "Quá nhiều yêu cầu, hãy thử lại sau.";
+          
+          // Kiểm tra dữ liệu phản hồi
+          if (responseData) {
+            if (typeof responseData === 'string') {
+              // Nếu là chuỗi JSON, phân tích
+              try {
+                const parsedData = JSON.parse(responseData);
+                if (parsedData.message) {
+                  errorMessage = parsedData.message;
+                }
+              } catch (e) {
+                console.error('Không thể phân tích dữ liệu JSON:', e);
+              }
+            } else if (responseData.message) {
+              // Nếu đã là đối tượng
+              errorMessage = responseData.message;
+            }
+          }
+          
+          // Hiển thị thông báo lỗi nếu cờ hiển thị được bật
+          if (showErrorMessage) {
+            message.error(errorMessage);
+          }
+          
+          // Tạo lỗi với thông báo đã được xử lý
+          const rateLimitError = new Error(errorMessage);
+          rateLimitError.response = error.response;
+          return Promise.reject(rateLimitError);
+        } catch (parseError) {
+          console.error('Lỗi khi xử lý phản hồi rate limit:', parseError);
+        }
+      }
       
       // Token hết hạn - thử refresh token
       if (status === 401 && !originalRequest._retry) {
@@ -157,7 +202,9 @@ api.interceptors.response.use(
           localStorage.removeItem(REFRESH_TOKEN_KEY);
           localStorage.removeItem('user_info');
           
-          message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+          if (showErrorMessage) {
+            message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+          }
           
           setTimeout(() => {
             window.location.href = '/login';
@@ -197,7 +244,9 @@ api.interceptors.response.use(
             localStorage.removeItem(REFRESH_TOKEN_KEY);
             localStorage.removeItem('user_info');
             
-            message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+            if (showErrorMessage) {
+              message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+            }
             
             setTimeout(() => {
               window.location.href = '/login';
@@ -210,7 +259,9 @@ api.interceptors.response.use(
           localStorage.removeItem(REFRESH_TOKEN_KEY);
           localStorage.removeItem('user_info');
           
-          message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+          if (showErrorMessage) {
+            message.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+          }
           
           setTimeout(() => {
             window.location.href = '/login';
@@ -222,28 +273,38 @@ api.interceptors.response.use(
         return Promise.reject(error);
       } 
       else if (status === 403) {
-        message.error('Bạn không có quyền thực hiện hành động này');
+        if (showErrorMessage) {
+          message.error('Bạn không có quyền thực hiện hành động này');
+        }
       }
       else if (status === 404) {
-        message.error('Không tìm thấy tài nguyên');
+        if (showErrorMessage) {
+          message.error('Không tìm thấy tài nguyên');
+        }
       }
       else if (status === 500) {
-        message.error('Lỗi máy chủ. Vui lòng thử lại sau.');
+        if (showErrorMessage) {
+          message.error('Lỗi máy chủ. Vui lòng thử lại sau.');
+        }
       }
-      else if (error.response.data && error.response.data.message) {
-        // Hiển thị thông báo lỗi từ server nếu có
+      else if (error.response.data && error.response.data.message && showErrorMessage) {
+        // Hiển thị thông báo lỗi từ server nếu có và cờ hiển thị được bật
         message.error(error.response.data.message);
       }
     } 
     else if (error.request) {
       // Yêu cầu đã được gửi nhưng không nhận được phản hồi
       console.error('api.js: Không nhận được phản hồi từ server:', error.request);
-      message.error('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.');
+      if (showErrorMessage) {
+        message.error('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.');
+      }
     } 
     else {
       // Lỗi khi thiết lập yêu cầu
       console.error('api.js: Lỗi khi gửi yêu cầu:', error.message);
-      message.error('Có lỗi xảy ra khi gửi yêu cầu.');
+      if (showErrorMessage) {
+        message.error('Có lỗi xảy ra khi gửi yêu cầu.');
+      }
     }
     
     return Promise.reject(error);

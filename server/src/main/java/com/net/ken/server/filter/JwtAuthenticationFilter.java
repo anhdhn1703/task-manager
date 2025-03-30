@@ -2,6 +2,7 @@ package com.net.ken.server.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.net.ken.server.dto.ResponseDTO;
+import com.net.ken.server.model.User;
 import com.net.ken.server.service.JwtTokenService;
 import com.net.ken.server.service.impl.ApplicationUserDetailsService;
 import io.jsonwebtoken.ExpiredJwtException;
@@ -80,6 +81,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 log.debug("JWT valid, username: {}", username);
                 
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                
+                // Kiểm tra xem token có được tạo trước khi mật khẩu thay đổi không
+                if (userDetails instanceof User && jwtTokenService.isTokenIssuedBeforePasswordChange(jwt, (User) userDetails)) {
+                    log.warn("JWT được tạo trước khi mật khẩu thay đổi cho người dùng: {}", username);
+                    handleJwtException(
+                            response,
+                            "PASSWORD_CHANGED",
+                            "Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại.",
+                            HttpStatus.UNAUTHORIZED
+                    );
+                    return;
+                }
+                
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities());
                 

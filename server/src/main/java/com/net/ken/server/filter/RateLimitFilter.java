@@ -48,15 +48,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         
         // Áp dụng rate limit nghiêm ngặt hơn cho các endpoint xác thực
         if (requestURI.contains("/api/auth/login") || requestURI.contains("/api/auth/register")) {
-            if (isRateLimited(clientIp, 10, TimeUnit.MINUTES.toMillis(1))) { // 10 yêu cầu/phút cho xác thực
+            if (isRateLimited(clientIp, 20, TimeUnit.MINUTES.toMillis(1))) { // 20 yêu cầu/phút cho xác thực
                 response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-                response.setContentType("application/json");
+                response.setContentType("application/json;charset=UTF-8");
+                response.setCharacterEncoding("UTF-8");
                 response.getWriter().write("{\"error\":\"TOO_MANY_REQUESTS\",\"message\":\"Quá nhiều yêu cầu, hãy thử lại sau.\"}");
                 return;
             }
         } else if (isRateLimited(clientIp, MAX_REQUESTS, WINDOW_SIZE_MS)) {
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-            response.setContentType("application/json");
+            response.setContentType("application/json;charset=UTF-8");
+            response.setCharacterEncoding("UTF-8");
             response.getWriter().write("{\"error\":\"TOO_MANY_REQUESTS\",\"message\":\"Quá nhiều yêu cầu, hãy thử lại sau.\"}");
             return;
         }

@@ -9,6 +9,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
@@ -46,6 +47,12 @@ public class User implements UserDetails {
 
     @Column(name = "last_password_change_date")
     private LocalDateTime lastPasswordChangeDate;
+    
+    @Column(name = "failed_login_attempts")
+    private Integer failedLoginAttempts = 0;
+    
+    @Column(name = "account_locked_date")
+    private LocalDateTime accountLockedDate;
 
     @Column(name = "account_non_expired")
     private boolean accountNonExpired = true;
@@ -68,11 +75,75 @@ public class User implements UserDetails {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        lastPasswordChangeDate = LocalDateTime.now(); // Đặt thời gian thay đổi mật khẩu ban đầu
+        failedLoginAttempts = 0; // Khởi tạo số lần đăng nhập sai
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+    
+    /**
+     * Tăng số lần đăng nhập sai và tự động khóa tài khoản nếu quá giới hạn
+     * 
+     * @return true nếu tài khoản bị khóa, false nếu chưa bị khóa
+     */
+    public boolean incrementFailedLoginAttempts() {
+        if (failedLoginAttempts == null) {
+            failedLoginAttempts = 0;
+        }
+        
+        failedLoginAttempts++;
+        
+        if (failedLoginAttempts >= 6) {
+            accountNonLocked = false;
+            accountLockedDate = LocalDateTime.of(9999, 12, 31, 0, 0, 0);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Reset số lần đăng nhập sai về 0 khi đăng nhập thành công
+     */
+    public void resetFailedLoginAttempts() {
+        failedLoginAttempts = 0;
+    }
+
+    /**
+     * Kiểm tra xem mật khẩu có quá hạn không (quá 90 ngày kể từ lần thay đổi cuối cùng)
+     * 
+     * @return true nếu mật khẩu đã quá hạn, false nếu chưa quá hạn
+     */
+    public boolean isPasswordExpired() {
+        if (lastPasswordChangeDate == null) {
+            // Nếu chưa có dữ liệu về lần thay đổi mật khẩu cuối cùng, coi như mật khẩu đã quá hạn
+            return true;
+        }
+        
+        // Tính số ngày từ lần thay đổi mật khẩu cuối cùng đến hiện tại
+        long daysSinceLastPasswordChange = ChronoUnit.DAYS.between(lastPasswordChangeDate, LocalDateTime.now());
+        
+        // Kiểm tra xem số ngày có vượt quá 90 ngày không
+        return daysSinceLastPasswordChange >= 90;
+    }
+
+    /**
+     * Lấy số ngày còn lại trước khi mật khẩu hết hạn
+     * 
+     * @return Số ngày còn lại, -1 nếu mật khẩu đã hết hạn
+     */
+    public long getDaysUntilPasswordExpiry() {
+        if (lastPasswordChangeDate == null) {
+            return -1;
+        }
+        
+        long daysSinceLastPasswordChange = ChronoUnit.DAYS.between(lastPasswordChangeDate, LocalDateTime.now());
+        long daysRemaining = 90 - daysSinceLastPasswordChange;
+        
+        return daysRemaining > 0 ? daysRemaining : -1;
     }
 
     @Override
@@ -94,7 +165,8 @@ public class User implements UserDetails {
 
     @Override
     public boolean isCredentialsNonExpired() {
-        return credentialsNonExpired;
+        // Cập nhật phương thức này để kiểm tra cả trạng thái đã lưu và tính toán dựa trên thời gian
+        return credentialsNonExpired && !isPasswordExpired();
     }
 
     @Override

@@ -61,16 +61,6 @@ public class ResponseDTO<T> {
                 .build();
     }
     
-    public static <T> ResponseDTO<T> success(T data, String message) {
-        return ResponseDTO.<T>builder()
-                .timestamp(LocalDateTime.now())
-                .status(200)
-                .success(true)
-                .message(message)
-                .data(data)
-                .build();
-    }
-    
     public static <T> ResponseDTO<T> success(T data, String message, PageInfo pageInfo) {
         return ResponseDTO.<T>builder()
                 .timestamp(LocalDateTime.now())
@@ -90,6 +80,30 @@ public class ResponseDTO<T> {
                 .errorCode(errorCode)
                 .message(message)
                 .success(false)
+                .build();
+    }
+    
+    public static <T> ResponseDTO<T> error(String message, String errorCode, T data) {
+        return ResponseDTO.<T>builder()
+                .timestamp(LocalDateTime.now())
+                .status(400)
+                .title("Error")
+                .errorCode(errorCode)
+                .message(message)
+                .success(false)
+                .data(data)
+                .build();
+    }
+    
+    public static <T> ResponseDTO<T> error(int status, String title, String errorCode, String message, T data) {
+        return ResponseDTO.<T>builder()
+                .timestamp(LocalDateTime.now())
+                .status(status)
+                .title(title)
+                .errorCode(errorCode)
+                .message(message)
+                .success(false)
+                .data(data)
                 .build();
     }
     

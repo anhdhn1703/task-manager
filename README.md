@@ -62,6 +62,25 @@
 * Đảm bảo tính nhất quán trong việc hiển thị tiến độ công việc
 * Tăng cường tính ổn định khi hiển thị task trên giao diện người dùng
 
+### Phiên bản 1.3.0 (31/03/2025)
+**Cải thiện bảo mật và trải nghiệm người dùng**
+
+* Nâng cao tính bảo mật của hệ thống:
+  - Thêm giới hạn tốc độ yêu cầu (Rate limiting) cho API, đặc biệt là các endpoint xác thực
+  - Bảo vệ chống lại tấn công brute force bằng cách khóa tài khoản sau 6 lần đăng nhập sai
+  - Tự động mở khóa tài khoản bằng chức năng Admin
+* Cải thiện quản lý xác thực và phiên làm việc:
+  - Sửa lỗi tăng đôi số lần đăng nhập sai khi nhập sai mật khẩu
+  - Cải thiện luồng xử lý mật khẩu hết hạn
+  - Thêm cơ chế tự động chuyển hướng đến trang đổi mật khẩu
+* Sửa lỗi hiển thị tiếng Việt trong thông báo lỗi:
+  - Cấu hình UTF-8 cho API response
+  - Sửa lỗi hiển thị ký tự tiếng Việt trong thông báo lỗi rate limit
+* Tối ưu trải nghiệm người dùng:
+  - Giải quyết vấn đề thông báo lỗi trùng lặp giữa API và giao diện người dùng
+  - Cải thiện chi tiết thông báo lỗi để người dùng hiểu rõ hơn
+  - Hiển thị số lần đăng nhập sai còn lại trước khi tài khoản bị khóa
+
 ## Công nghệ sử dụng
 
 ### Backend

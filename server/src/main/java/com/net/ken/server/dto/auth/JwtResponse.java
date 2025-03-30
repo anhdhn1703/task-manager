@@ -14,9 +14,12 @@ import java.util.List;
 public class JwtResponse {
     private String token;
     private String refreshToken;
+    private String type = "Bearer";
     private Long id;
     private String username;
     private String email;
     private String fullName;
     private List<String> roles;
+    private boolean passwordExpired;
+    private long daysUntilPasswordExpiry;
 } 

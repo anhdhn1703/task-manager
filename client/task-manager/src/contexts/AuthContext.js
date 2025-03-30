@@ -92,6 +92,15 @@ export const AuthProvider = ({ children }) => {
       if (userData) {
         setUser(userData);
         
+        // Kiểm tra thông tin mật khẩu hết hạn
+        if (userData.passwordExpired) {
+          message.warning('Mật khẩu của bạn đã hết hạn. Vui lòng đổi mật khẩu ngay!', 10);
+          // Có thể chuyển hướng đến trang đổi mật khẩu
+          // navigate('/change-password');
+        } else if (userData.daysUntilPasswordExpiry && userData.daysUntilPasswordExpiry <= 15) {
+          message.info(`Mật khẩu của bạn sẽ hết hạn trong ${userData.daysUntilPasswordExpiry} ngày.`, 5);
+        }
+        
         // Hiển thị thông báo thành công
         const displayName = userData.fullName || userData.username || 'Người dùng';
         message.success(`Chào mừng ${displayName} đã quay trở lại!`);
@@ -111,6 +120,25 @@ export const AuthProvider = ({ children }) => {
         // Lỗi từ máy chủ với phản hồi
         if (err.response.status === 401) {
           errorMessage = 'Tên đăng nhập hoặc mật khẩu không đúng';
+        } else if (err.response.status === 429) {
+          // Xử lý đặc biệt cho lỗi rate limit
+          errorMessage = 'Quá nhiều yêu cầu, hãy thử lại sau.';
+          
+          // Trích xuất thông báo từ phản hồi nếu có
+          if (err.response.data) {
+            if (typeof err.response.data === 'string') {
+              try {
+                const data = JSON.parse(err.response.data);
+                if (data.message) {
+                  errorMessage = data.message;
+                }
+              } catch (e) {
+                console.error('Không thể phân tích dữ liệu JSON từ lỗi:', e);
+              }
+            } else if (err.response.data.message) {
+              errorMessage = err.response.data.message;
+            }
+          }
         } else if (err.response.data && err.response.data.message) {
           errorMessage = err.response.data.message;
         } else {
@@ -140,9 +168,18 @@ export const AuthProvider = ({ children }) => {
     if (user) {
       // Lấy địa chỉ chuyển hướng từ location state hoặc mặc định về trang chủ
       const from = location.state?.from?.pathname || "/";
-      console.log(`AuthContext: Chuyển hướng đến ${from} sau khi đăng nhập`);
-      navigate(from, { replace: true });
+      
+      // Nếu mật khẩu đã hết hạn, không tự động chuyển hướng
+      // hàm gọi sẽ xử lý việc chuyển hướng đến trang đổi mật khẩu
+      if (!user.passwordExpired) {
+        console.log(`AuthContext: Chuyển hướng đến ${from} sau khi đăng nhập`);
+        navigate(from, { replace: true });
+      }
+      
+      return user;
     }
+    
+    return null;
   };
 
   const register = async (username, email, password) => {
@@ -164,7 +201,26 @@ export const AuthProvider = ({ children }) => {
       let errorMessage = 'Đăng ký thất bại';
       
       if (err.response) {
-        if (err.response.status === 400 && err.response.data && err.response.data.message) {
+        if (err.response.status === 429) {
+          // Xử lý đặc biệt cho lỗi rate limit
+          errorMessage = 'Quá nhiều yêu cầu, hãy thử lại sau.';
+          
+          // Trích xuất thông báo từ phản hồi nếu có
+          if (err.response.data) {
+            if (typeof err.response.data === 'string') {
+              try {
+                const data = JSON.parse(err.response.data);
+                if (data.message) {
+                  errorMessage = data.message;
+                }
+              } catch (e) {
+                console.error('Không thể phân tích dữ liệu JSON từ lỗi:', e);
+              }
+            } else if (err.response.data.message) {
+              errorMessage = err.response.data.message;
+            }
+          }
+        } else if (err.response.status === 400 && err.response.data && err.response.data.message) {
           errorMessage = err.response.data.message;
         } else {
           errorMessage = `Lỗi máy chủ: ${err.response.status}`;
@@ -220,7 +276,26 @@ export const AuthProvider = ({ children }) => {
       let errorMessage = 'Đổi mật khẩu thất bại';
       
       if (err.response) {
-        if (err.response.status === 400 && err.response.data && err.response.data.message) {
+        if (err.response.status === 429) {
+          // Xử lý đặc biệt cho lỗi rate limit
+          errorMessage = 'Quá nhiều yêu cầu, hãy thử lại sau.';
+          
+          // Trích xuất thông báo từ phản hồi nếu có
+          if (err.response.data) {
+            if (typeof err.response.data === 'string') {
+              try {
+                const data = JSON.parse(err.response.data);
+                if (data.message) {
+                  errorMessage = data.message;
+                }
+              } catch (e) {
+                console.error('Không thể phân tích dữ liệu JSON từ lỗi:', e);
+              }
+            } else if (err.response.data.message) {
+              errorMessage = err.response.data.message;
+            }
+          }
+        } else if (err.response.status === 400 && err.response.data && err.response.data.message) {
           errorMessage = err.response.data.message;
         } else if (err.response.status === 401) {
           errorMessage = 'Mật khẩu hiện tại không chính xác';

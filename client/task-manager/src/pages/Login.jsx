@@ -41,12 +41,28 @@ const Login = memo(() => {
       });
       
       // Gọi hàm đăng nhập với chuyển hướng
-      await handleLoginWithRedirect(values.username, values.password);
+      const result = await handleLoginWithRedirect(values.username, values.password);
+      
+      // Nếu đăng nhập thành công và mật khẩu đã hết hạn, chuyển hướng đến trang đổi mật khẩu
+      if (result && result.passwordExpired) {
+        navigate('/change-password?expired=true');
+      }
     } catch (error) {
       console.error('Login error:', error);
-      setLocalError(error.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin đăng nhập.');
+      
+      // Xử lý các loại lỗi cụ thể
+      if (error.message && error.message.includes('Tài khoản đã bị khóa')) {
+        // Nếu tài khoản bị khóa, hiển thị thông báo cụ thể
+        setLocalError(error.message);
+      } else if (error.message && error.message.includes('Số lần thử còn lại')) {
+        // Nếu có thông tin về số lần thử còn lại
+        setLocalError(error.message);
+      } else {
+        // Lỗi mặc định
+        setLocalError(error.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin đăng nhập.');
+      }
     }
-  }, [handleLoginWithRedirect, clearError]);
+  }, [handleLoginWithRedirect, clearError, navigate]);
 
   // Hiển thị lỗi - ưu tiên lỗi cục bộ
   const errorMessage = localError || authError;

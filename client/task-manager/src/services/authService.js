@@ -59,7 +59,10 @@ const authService = {
     try {
       console.log(`authService: Đang đăng nhập với username: ${username}`);
       
-      const response = await api.post('/auth/login', { username, password });
+      // Tắt hiển thị thông báo lỗi tự động để tránh hiển thị trùng lặp
+      const response = await api.post('/auth/login', { username, password }, {
+        showErrorMessage: false
+      });
       console.log('authService: Phản hồi từ server:', response);
       
       if (!response || !response.data) {
@@ -72,16 +75,43 @@ const authService = {
       // Kiểm tra xem có success không
       if (responseData.success === false) {
         console.error('authService: Đăng nhập thất bại', responseData.message);
+        
+        // Kiểm tra phản hồi lỗi cụ thể (LoginResponse) trong data
+        if (responseData.data && responseData.data.success === false) {
+          const loginResponse = responseData.data;
+          
+          // Nếu tài khoản bị khóa
+          if (loginResponse.errorCode === 'ACCOUNT_LOCKED') {
+            throw new Error(loginResponse.message || 'Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.');
+          }
+          
+          // Nếu thông tin đăng nhập không chính xác và có thông tin về số lần thử
+          if (loginResponse.errorCode === 'INVALID_CREDENTIALS' && loginResponse.failedAttempts !== undefined) {
+            throw new Error(`${loginResponse.message || 'Tên đăng nhập hoặc mật khẩu không chính xác'}. Số lần thử còn lại: ${6 - loginResponse.failedAttempts}`);
+          }
+          
+          // Các lỗi khác
+          throw new Error(loginResponse.message || responseData.message || 'Đăng nhập thất bại');
+        }
+        
+        // Nếu không có data cụ thể, sử dụng thông báo từ responseData
         throw new Error(responseData.message || 'Đăng nhập thất bại');
       }
       
       // Lấy dữ liệu từ cấu trúc ResponseDTO
-      const userData = responseData.data;
+      if (!responseData.data) {
+        console.error('authService: Không tìm thấy dữ liệu trong phản hồi', responseData);
+        throw new Error('Không có dữ liệu trong phản hồi từ máy chủ');
+      }
+      
+      // Phản hồi có thể chứa LoginResponse.data thay vì trực tiếp JwtResponse
+      const loginResponse = responseData.data;
+      const userData = loginResponse.data || loginResponse;
       
       // Kiểm tra xem data có tồn tại không
       if (!userData) {
-        console.error('authService: Không tìm thấy dữ liệu trong phản hồi', responseData);
-        throw new Error('Không có dữ liệu trong phản hồi từ máy chủ');
+        console.error('authService: Không tìm thấy dữ liệu người dùng trong phản hồi', responseData);
+        throw new Error('Không có dữ liệu người dùng trong phản hồi từ máy chủ');
       }
       
       // Nếu có dữ liệu nhưng không có token, báo lỗi
@@ -102,7 +132,9 @@ const authService = {
         username: userData.username,
         email: userData.email,
         fullName: userData.fullName,
-        roles: userData.roles || []
+        roles: userData.roles || [],
+        passwordExpired: userData.passwordExpired || false,
+        daysUntilPasswordExpiry: userData.daysUntilPasswordExpiry || null
       };
       
       // In ra để debug
@@ -112,6 +144,13 @@ const authService = {
       localStorage.setItem(USER_INFO_KEY, JSON.stringify(user));
       
       console.log('authService: Đăng nhập thành công, đã lưu token và thông tin người dùng');
+      
+      // Kiểm tra xem mật khẩu có hết hạn không và hiển thị thông báo
+      if (userData.passwordExpired) {
+        message.warning('Mật khẩu của bạn đã hết hạn. Vui lòng đổi mật khẩu.');
+      } else if (userData.daysUntilPasswordExpiry && userData.daysUntilPasswordExpiry <= 15) {
+        message.info(`Mật khẩu của bạn sẽ hết hạn trong ${userData.daysUntilPasswordExpiry} ngày.`);
+      }
       
       // Trả về dữ liệu đã chuẩn hóa
       return {
@@ -151,11 +190,14 @@ const authService = {
     try {
       console.log(`authService: Đăng ký tài khoản mới - ${username}, ${email}`);
       
+      // Tắt hiển thị thông báo lỗi tự động để tránh hiển thị trùng lặp
       const response = await api.post('/auth/register', { 
         username, 
         email, 
         password,
         fullName 
+      }, {
+        showErrorMessage: false
       });
       
       console.log('authService: Phản hồi đăng ký từ server:', response);
@@ -249,9 +291,12 @@ const authService = {
         throw new Error('Vui lòng đăng nhập để thực hiện thao tác này');
       }
       
+      // Tắt hiển thị thông báo lỗi tự động để tránh hiển thị trùng lặp
       const response = await api.post('/auth/change-password', {
         currentPassword: oldPassword,
         newPassword
+      }, {
+        showErrorMessage: false
       });
       
       console.log('authService: Phản hồi đổi mật khẩu từ server:', response);
@@ -304,7 +349,10 @@ const authService = {
       
       console.log('authService: Đang xác thực token');
       
-      const response = await api.get('/auth/validate-token');
+      // Tắt hiển thị thông báo lỗi tự động để tránh hiển thị trùng lặp
+      const response = await api.get('/auth/validate-token', {
+        showErrorMessage: false
+      });
       
       if (!response || !response.data) {
         console.error('authService: Phản hồi xác thực token không hợp lệ');

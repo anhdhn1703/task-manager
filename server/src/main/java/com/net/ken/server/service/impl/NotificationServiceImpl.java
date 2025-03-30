@@ -13,6 +13,7 @@ import com.net.ken.server.service.AuthService;
 import com.net.ken.server.service.NotificationService;
 import com.net.ken.server.util.SecurityUtils;
 import jakarta.persistence.EntityNotFoundException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.access.AccessDeniedException;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
@@ -44,8 +46,13 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     // Lấy người dùng hiện tại từ AuthService
-    public User getCurrentUser() {
-        return authService.getCurrentUser();
+    protected User getCurrentUser() {
+        try {
+            return authService.getCurrentUser();
+        } catch (Exception e) {
+            // Trong trường hợp scheduled tasks, trả về null
+            return null;
+        }
     }
 
     @Override
@@ -176,39 +183,47 @@ public class NotificationServiceImpl implements NotificationService {
     @Scheduled(cron = "0 0 0 * * ?") // Kiểm tra hàng ngày vào lúc nửa đêm
     @Transactional
     public void checkAndCreateDeadlineNotifications() {
-        User currentUser = getCurrentUser();
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime threeDaysLater = now.plusDays(3);
-        LocalDateTime twoDaysLater = now.plusDays(2);
-        LocalDateTime oneDayLater = now.plusDays(1);
-        
-        // Tìm các task chưa hoàn thành có deadline
-        List<Task> tasks = taskRepository.findByUserAndStatusNotAndDueDateIsNotNull(currentUser, Task.Status.COMPLETED);
-        
-        for (Task task : tasks) {
-            LocalDateTime dueDate = task.getDueDate();
+        try {
+            // Với tác vụ hệ thống, chúng ta cần xử lý thông báo cho tất cả người dùng
+            List<User> allUsers = userRepository.findAll();
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime threeDaysLater = now.plusDays(3);
+            LocalDateTime twoDaysLater = now.plusDays(2);
+            LocalDateTime oneDayLater = now.plusDays(1);
             
-            if (dueDate.isBefore(now)) {
-                // Đã quá hạn
-                createOverdueNotification(task);
-            } else {
-                // Tính số giờ đến deadline
-                long hoursToDeadline = ChronoUnit.HOURS.between(now, dueDate);
+            for (User user : allUsers) {
+                // Tìm các task chưa hoàn thành có deadline
+                List<Task> tasks = taskRepository.findByUserAndStatusNotAndDueDateIsNotNull(user, Task.Status.COMPLETED);
                 
-                if (hoursToDeadline <= 24) {
-                    // Còn dưới 24 giờ
-                    createApproachingDeadlineNotification(task, "trong vòng 24 giờ", NotificationPriority.URGENT);
-                } else if (dueDate.isBefore(oneDayLater) || dueDate.isEqual(oneDayLater)) {
-                    // Còn 1 ngày
-                    createApproachingDeadlineNotification(task, "ngày mai", NotificationPriority.HIGH);
-                } else if (dueDate.isBefore(twoDaysLater)) {
-                    // Còn 2 ngày
-                    createApproachingDeadlineNotification(task, "trong 2 ngày", NotificationPriority.NORMAL);
-                } else if (dueDate.isBefore(threeDaysLater)) {
-                    // Còn 3 ngày
-                    createApproachingDeadlineNotification(task, "trong 3 ngày", NotificationPriority.LOW);
+                for (Task task : tasks) {
+                    LocalDateTime dueDate = task.getDueDate();
+                    
+                    if (dueDate.isBefore(now)) {
+                        // Đã quá hạn
+                        createOverdueNotification(task, user);
+                    } else {
+                        // Tính số giờ đến deadline
+                        long hoursToDeadline = ChronoUnit.HOURS.between(now, dueDate);
+                        
+                        if (hoursToDeadline <= 24) {
+                            // Còn dưới 24 giờ
+                            createApproachingDeadlineNotification(task, "trong vòng 24 giờ", NotificationPriority.URGENT, user);
+                        } else if (dueDate.isBefore(oneDayLater) || dueDate.isEqual(oneDayLater)) {
+                            // Còn 1 ngày
+                            createApproachingDeadlineNotification(task, "ngày mai", NotificationPriority.HIGH, user);
+                        } else if (dueDate.isBefore(twoDaysLater)) {
+                            // Còn 2 ngày
+                            createApproachingDeadlineNotification(task, "trong 2 ngày", NotificationPriority.NORMAL, user);
+                        } else if (dueDate.isBefore(threeDaysLater)) {
+                            // Còn 3 ngày
+                            createApproachingDeadlineNotification(task, "trong 3 ngày", NotificationPriority.LOW, user);
+                        }
+                    }
                 }
             }
+        } catch (Exception e) {
+            // Log lỗi nhưng không ném ngoại lệ để tránh dừng các tác vụ theo lịch khác
+            log.error("Lỗi khi thực hiện checkAndCreateDeadlineNotifications: ", e);
         }
     }
     
@@ -217,27 +232,35 @@ public class NotificationServiceImpl implements NotificationService {
     @Scheduled(cron = "0 0 * * * ?") // Mỗi giờ
     @Transactional
     public void checkHourlyDeadlineNotifications() {
-        User currentUser = getCurrentUser();
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime oneHourLater = now.plusHours(1);
-        
-        // Tìm các task có deadline trong vòng 1 giờ tới
-        List<Task> urgentTasks = taskRepository.findByUserAndStatusNotAndDueDateBetween(
-                currentUser, Task.Status.COMPLETED, now, oneHourLater);
-        
-        for (Task task : urgentTasks) {
-            String message = "KHẨN CẤP: Công việc \"" + task.getTitle() + "\" sẽ hết hạn trong vòng 1 giờ tới!";
+        try {
+            // Với tác vụ hệ thống, chúng ta cần xử lý thông báo cho tất cả người dùng
+            List<User> allUsers = userRepository.findAll();
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime oneHourLater = now.plusHours(1);
             
-            Notification notification = new Notification();
-            notification.setMessage(message);
-            notification.setType(NotificationType.DEADLINE_APPROACHING);
-            notification.setPriority(NotificationPriority.URGENT);
-            notification.setTask(task);
-            notification.setUser(currentUser);
-            notification.setNotifyAt(now);
-            notification.setExpireAt(task.getDueDate());
-            
-            notificationRepository.save(notification);
+            for (User user : allUsers) {
+                // Tìm các task có deadline trong vòng 1 giờ tới
+                List<Task> urgentTasks = taskRepository.findByUserAndStatusNotAndDueDateBetween(
+                        user, Task.Status.COMPLETED, now, oneHourLater);
+                
+                for (Task task : urgentTasks) {
+                    String message = "KHẨN CẤP: Công việc \"" + task.getTitle() + "\" sẽ hết hạn trong vòng 1 giờ tới!";
+                    
+                    Notification notification = new Notification();
+                    notification.setMessage(message);
+                    notification.setType(NotificationType.DEADLINE_APPROACHING);
+                    notification.setPriority(NotificationPriority.URGENT);
+                    notification.setTask(task);
+                    notification.setUser(user);
+                    notification.setNotifyAt(now);
+                    notification.setExpireAt(task.getDueDate());
+                    
+                    notificationRepository.save(notification);
+                }
+            }
+        } catch (Exception e) {
+            // Log lỗi nhưng không ném ngoại lệ để tránh dừng các tác vụ theo lịch khác
+            log.error("Lỗi khi thực hiện checkHourlyDeadlineNotifications: ", e);
         }
     }
     
@@ -270,18 +293,26 @@ public class NotificationServiceImpl implements NotificationService {
     }
     
     private void createOverdueNotification(Task task) {
-        User currentUser = getCurrentUser();
+        createOverdueNotification(task, getCurrentUser());
+    }
+    
+    private void createOverdueNotification(Task task, User user) {
+        if (user == null) {
+            log.warn("Không thể tạo thông báo quá hạn cho task {} - người dùng null", task.getId());
+            return;
+        }
+        
         String message = "Công việc \"" + task.getTitle() + "\" đã quá hạn! (Hạn chót: " + 
                 task.getDueDate().toLocalDate() + ")";
         
         // Kiểm tra xem đã có thông báo quá hạn nào cho task này chưa
-        if (!hasExistingNotificationOfType(task, NotificationType.DEADLINE_OVERDUE)) {
+        if (!hasExistingNotificationOfType(task, NotificationType.DEADLINE_OVERDUE, user)) {
             Notification notification = new Notification();
             notification.setMessage(message);
             notification.setType(NotificationType.DEADLINE_OVERDUE);
             notification.setPriority(NotificationPriority.URGENT);
             notification.setTask(task);
-            notification.setUser(currentUser);
+            notification.setUser(user);
             notification.setNotifyAt(LocalDateTime.now());
             notification.setExpireAt(LocalDateTime.now().plusDays(1)); // Hết hạn sau 1 ngày
             
@@ -290,18 +321,26 @@ public class NotificationServiceImpl implements NotificationService {
     }
     
     private void createApproachingDeadlineNotification(Task task, String timeframe, NotificationPriority priority) {
-        User currentUser = getCurrentUser();
+        createApproachingDeadlineNotification(task, timeframe, priority, getCurrentUser());
+    }
+    
+    private void createApproachingDeadlineNotification(Task task, String timeframe, NotificationPriority priority, User user) {
+        if (user == null) {
+            log.warn("Không thể tạo thông báo sắp đến hạn cho task {} - người dùng null", task.getId());
+            return;
+        }
+        
         String message = "Công việc \"" + task.getTitle() + "\" sẽ đến hạn " + timeframe + 
                 " (" + task.getDueDate().toLocalDate() + ")";
         
         // Kiểm tra xem đã có thông báo tương tự nào cho task này chưa
-        if (!hasExistingNotificationOfType(task, NotificationType.DEADLINE_APPROACHING)) {
+        if (!hasExistingNotificationOfType(task, NotificationType.DEADLINE_APPROACHING, user)) {
             Notification notification = new Notification();
             notification.setMessage(message);
             notification.setType(NotificationType.DEADLINE_APPROACHING);
             notification.setPriority(priority);
             notification.setTask(task);
-            notification.setUser(currentUser);
+            notification.setUser(user);
             notification.setNotifyAt(LocalDateTime.now());
             notification.setExpireAt(task.getDueDate());
             
@@ -310,11 +349,18 @@ public class NotificationServiceImpl implements NotificationService {
     }
     
     private boolean hasExistingNotificationOfType(Task task, NotificationType type) {
-        User currentUser = getCurrentUser();
+        return hasExistingNotificationOfType(task, type, getCurrentUser());
+    }
+    
+    private boolean hasExistingNotificationOfType(Task task, NotificationType type, User user) {
+        if (user == null) {
+            return false;
+        }
+        
         // Chỉ kiểm tra thông báo được tạo trong vòng 24h trở lại
         LocalDateTime oneDayAgo = LocalDateTime.now().minusDays(1);
         List<Notification> notifications = notificationRepository.findByUserAndTaskIdAndTypeAndCreatedAtAfter(
-                currentUser, task.getId(), type, oneDayAgo);
+                user, task.getId(), type, oneDayAgo);
         return !notifications.isEmpty();
     }
     
